@@ -1,10 +1,12 @@
-from PySide6.QtCore import QPointF, QRectF
-from PySide6.QtGui import QPainterPath, QPolygonF
-from PySide6.QtWidgets import QGraphicsItem, QGraphicsPathItem
+import math
+
+from PySide6.QtGui import QPolygonF
+from PySide6.QtCore import QPointF, QRectF, QLineF, Qt
+from PySide6.QtGui import QPainterPath
+from PySide6.QtGui import QPolygonF
+from PySide6.QtWidgets import QGraphicsPathItem
 
 from src.node_system.connection import Connection
-from PySide6.QtCore import QPointF, QRectF, QLineF
-from PySide6.QtGui import QPainterPath
 
 
 # from src.node_system.connection import Connection
@@ -154,313 +156,383 @@ class ConnectionManager:
         path.lineTo(target_pos)
         return path
 
+
     @staticmethod
     def build_connection_path(start_port, end_port, scene):
         """
-        构建最优连接路径:
-        1. 确定所有节点的边界
-        2. 连接端口到所在节点边界的中点
-        3. 构建两个边界中点之间的连线(尽量少的横线或竖线)
-        4. 如果直接连线与其他节点边界相交，则绕过这些节点
-        5. 对连线进行优化，移除多余点并平滑拐角
+        构建连接路径：
+          1. 计算所有节点扩展后的边界（扩展矩形）并合并（得到多个 merged_paths，用于交点检测）
+          2. 根据端口所在节点边界及方向计算中点（start_mid, end_mid）
+          3. 利用这两个中点构成轴对齐矩形，生成两条候选路径：
+                 - 候选路径1：先水平（从 start_mid 到 (end_mid.x, start_mid.y)），再垂直到 end_mid
+                 - 候选路径2：先垂直（从 start_mid 到 (start_mid.x, end_mid.y)），再水平到 end_mid
+          4. 对每条候选路径，遍历每个合并边界（merged_paths），
+             计算候选路径与该边界的交点（沿候选路径累计距离 t），但对于候选段与边界完全共线的部分不处理；
+             如果（经过过滤后）正好有2个交点，则将候选路径中这两个交点之间的部分替换为该边界上两点间较短的弧段。
+          5. 最终返回的路径由：
+                 - 从 start_port 到 start_mid
+                 - 两条候选路径（分别经过替换后的结果）
+                 - 从 end_mid 到 end_port
+             并且调试时会将所有合并后的边界也绘制在最终路径中。
         """
-        # 基本配置参数
-        node_buffer = 30  # 节点边界扩展距离
-        radius = 10  # 拐角曲率半径
-        offset = 20  # 节点边界偏移距离
+        NODE_BUFFER = 30  # 边界扩展距离
+        tol = 1e-6
 
-        # 获取端口位置
-        start_pos = start_port.mapToScene(QPointF(0, 0))
-        end_pos = end_port.mapToScene(QPointF(0, 0))
+        # ------ 基本辅助函数 ------
+        def create_boundary_rect(node):
+            rect = node.sceneBoundingRect()
+            return rect.adjusted(-NODE_BUFFER, -NODE_BUFFER, NODE_BUFFER, NODE_BUFFER)
 
-        # 定义方向向量
-        direction_vectors = {
-            'top': QPointF(0, -1),
-            'right': QPointF(1, 0),
-            'bottom': QPointF(0, 1),
-            'left': QPointF(-1, 0)
-        }
-        start_dir = direction_vectors[start_port.direction]
-        end_dir = direction_vectors[end_port.direction]
+        def get_ports(node):
+            ports = []
+            if hasattr(node, 'get_input_port'):
+                ip = node.get_input_port()
+                if ip:
+                    ports.append(ip)
+            if hasattr(node, 'get_output_ports'):
+                op = node.get_output_ports()
+                if isinstance(op, dict):
+                    ports.extend(list(op.values()))
+                elif isinstance(op, list):
+                    ports.extend(op)
+            return ports
 
-        node_boundaries = []
-        start_node_boundary = None
-        end_node_boundary = None
+        def create_default_boundary(pos):
+            rect = QRectF(pos.x() - 10, pos.y() - 10, 20, 20)
+            return rect.adjusted(-NODE_BUFFER, -NODE_BUFFER, NODE_BUFFER, NODE_BUFFER)
 
-        # 遍历场景中的所有节点，获取边界信息，并预计算扩展边界的边缘
+        def get_boundary_midpoint(rect, direction):
+            if direction == 'top':
+                return QPointF((rect.left() + rect.right()) / 2, rect.top())
+            elif direction == 'bottom':
+                return QPointF((rect.left() + rect.right()) / 2, rect.bottom())
+            elif direction == 'left':
+                return QPointF(rect.left(), (rect.top() + rect.bottom()) / 2)
+            elif direction == 'right':
+                return QPointF(rect.right(), (rect.top() + rect.bottom()) / 2)
+            else:
+                return QPointF((rect.left() + rect.right()) / 2, (rect.top() + rect.bottom()) / 2)
+
+        def equal_points(p1, p2, tol=tol):
+            return abs(p1.x() - p2.x()) < tol and abs(p1.y() - p2.y()) < tol
+
+        def intersect_line(line1, line2):
+            # 标准直线交点算法
+            p1, p2 = line1.p1(), line1.p2()
+            p3, p4 = line2.p1(), line2.p2()
+            dx1, dy1 = p2.x() - p1.x(), p2.y() - p1.y()
+            dx2, dy2 = p4.x() - p3.x(), p4.y() - p3.y()
+            denom = dx1 * dy2 - dy1 * dx2
+            if abs(denom) < tol:
+                return False, None
+            t = ((p3.x() - p1.x()) * dy2 - (p3.y() - p1.y()) * dx2) / denom
+            u = ((p3.x() - p1.x()) * dy1 - (p3.y() - p1.y()) * dx1) / denom
+            if 0 <= t <= 1 and 0 <= u <= 1:
+                return True, QPointF(p1.x() + t * dx1, p1.y() + t * dy1)
+            return False, None
+
+        def get_cumulative_lengths(pts):
+            cum = [0]
+            for i in range(1, len(pts)):
+                seg = QLineF(pts[i - 1], pts[i]).length()
+                cum.append(cum[-1] + seg)
+            return cum
+
+        # ------ 计算所有节点扩展边界及所属节点 ------
+        rects = []  # 存储所有扩展边界 (QRectF)
+        start_node_rect = None
+        end_node_rect = None
         if scene:
             for item in scene.items():
                 if hasattr(item, '__class__') and item.__class__.__name__ == 'Node':
-                    orig_rect = item.sceneBoundingRect()
-                    ext_rect = orig_rect.adjusted(-node_buffer, -node_buffer, node_buffer, node_buffer)
-                    # 预计算扩展边界的四条边，避免重复计算
-                    edges = [
-                        QLineF(ext_rect.topLeft(), ext_rect.topRight()),
-                        QLineF(ext_rect.topRight(), ext_rect.bottomRight()),
-                        QLineF(ext_rect.bottomRight(), ext_rect.bottomLeft()),
-                        QLineF(ext_rect.bottomLeft(), ext_rect.topLeft())
-                    ]
-                    boundary_info = {
-                        'node': item,
-                        'original': orig_rect,
-                        'extended': ext_rect,
-                        'edges': edges,
-                        'midpoints': {
-                            'top': QPointF((ext_rect.left() + ext_rect.right()) / 2, ext_rect.top()),
-                            'right': QPointF(ext_rect.right(), (ext_rect.top() + ext_rect.bottom()) / 2),
-                            'bottom': QPointF((ext_rect.left() + ext_rect.right()) / 2, ext_rect.bottom()),
-                            'left': QPointF(ext_rect.left(), (ext_rect.top() + ext_rect.bottom()) / 2)
-                        }
-                    }
-
-                    ports = []
-                    if hasattr(item, 'get_input_port'):
-                        ip = item.get_input_port()
-                        if ip:
-                            ports.append(ip)
-                    if hasattr(item, 'get_output_ports'):
-                        op = item.get_output_ports()
-                        if isinstance(op, dict):
-                            ports.extend(list(op.values()))
-                        elif isinstance(op, list):
-                            ports.extend(op)
-
+                    r = create_boundary_rect(item)
+                    rects.append(r)
+                    ports = get_ports(item)
                     if start_port in ports:
-                        start_node_boundary = boundary_info
+                        start_node_rect = r
                     if end_port in ports:
-                        end_node_boundary = boundary_info
+                        end_node_rect = r
+        start_pos = start_port.mapToScene(QPointF(0, 0))
+        end_pos = end_port.mapToScene(QPointF(0, 0))
+        if start_node_rect is None:
+            start_node_rect = create_default_boundary(start_pos)
+        if end_node_rect is None:
+            end_node_rect = create_default_boundary(end_pos)
 
-                    node_boundaries.append(boundary_info)
-
-        # 若未找到对应节点，使用默认边界
-        if not start_node_boundary or not end_node_boundary:
-            start_rect = QRectF(start_pos.x() - 10, start_pos.y() - 10, 20, 20)
-            end_rect = QRectF(end_pos.x() - 10, end_pos.y() - 10, 20, 20)
-            start_node_boundary = {
-                'original': start_rect,
-                'extended': start_rect.adjusted(-node_buffer, -node_buffer, node_buffer, node_buffer),
-                'midpoints': {
-                    'top': QPointF(start_pos.x(), start_rect.top() - node_buffer),
-                    'right': QPointF(start_rect.right() + node_buffer, start_pos.y()),
-                    'bottom': QPointF(start_pos.x(), start_rect.bottom() + node_buffer),
-                    'left': QPointF(start_rect.left() - node_buffer, start_pos.y())
-                }
-            }
-            end_node_boundary = {
-                'original': end_rect,
-                'extended': end_rect.adjusted(-node_buffer, -node_buffer, node_buffer, node_buffer),
-                'midpoints': {
-                    'top': QPointF(end_pos.x(), end_rect.top() - node_buffer),
-                    'right': QPointF(end_rect.right() + node_buffer, end_pos.y()),
-                    'bottom': QPointF(end_pos.x(), end_rect.bottom() + node_buffer),
-                    'left': QPointF(end_rect.left() - node_buffer, end_pos.y())
-                }
-            }
-
-        # 如果起始和结束是同一个节点，创建简单的回环路径
-        if start_node_boundary == end_node_boundary:
-            path = QPainterPath()
-            path.moveTo(start_pos)
-            detour_point = start_pos + start_dir * offset * 2
-            mid_point = (start_pos + end_pos) * 0.5 + QPointF(0, offset * 1.5)
-            path.lineTo(detour_point)
-            path.lineTo(mid_point)
-            path.lineTo(end_pos)
-            return path
-
-        # 根据端口方向获取节点边界中点
-        def get_boundary_point(port_position, port_direction, boundary):
-            return boundary['midpoints'][port_direction]
-
-        start_boundary_point = get_boundary_point(start_pos, start_port.direction, start_node_boundary)
-        end_boundary_point = get_boundary_point(end_pos, end_port.direction, end_node_boundary)
-
-        # 计算扩展连接点
-        start_outside = start_boundary_point + start_dir * offset
-        end_outside = end_boundary_point + end_dir * offset
-
-        # 根据端口方向明确计算中间点
-        if start_port.direction in ('left', 'right') and end_port.direction in ('top', 'bottom'):
-            # 当起始端口水平，结束端口垂直时，先水平再垂直
-            mid_point = QPointF(start_outside.x(), end_outside.y())
-        elif start_port.direction in ('top', 'bottom') and end_port.direction in ('left', 'right'):
-            # 当起始端口垂直，结束端口水平时，先垂直再水平
-            mid_point = QPointF(end_outside.x(), start_outside.y())
-        else:
-            # 当两个端口都在水平方向或都在垂直方向时，
-            # 使用简单的差值比较，选取一个折中点
-            if abs(start_outside.x() - end_outside.x()) > abs(start_outside.y() - end_outside.y()):
-                mid_point = QPointF((start_outside.x() + end_outside.x()) / 2, start_outside.y())
-            else:
-                mid_point = QPointF(start_outside.x(), (start_outside.y() + end_outside.y()) / 2)
-
-        # 初始路径点
-        path_points = [
-            start_pos,
-            start_boundary_point,
-            start_outside,
-            mid_point,
-            end_outside,
-            end_boundary_point,
-            end_pos
-        ]
-
-        # 检查线段与矩形是否相交（加入快速边界框检测）
-        def line_intersects_rect(line_start, line_end, rect, edges):
-            if (max(line_start.x(), line_end.x()) < rect.left() or
-                    min(line_start.x(), line_end.x()) > rect.right() or
-                    max(line_start.y(), line_end.y()) < rect.top() or
-                    min(line_start.y(), line_end.y()) > rect.bottom()):
-                return False
-            line = QLineF(line_start, line_end)
-            for edge in edges:
-                intersection_type, _ = line.intersects(edge)
-                if intersection_type == QLineF.BoundedIntersection:
-                    return True
-            return False
-
-        # 检查路径段是否与障碍物相交，合并关键点判断
-        def find_obstacle(p1, p2):
-            # 修改这部分：不要跳过特殊点的检测
-            # special_points = [start_pos, end_pos, start_boundary_point, start_outside, end_boundary_point, end_outside]
-            for boundary in node_boundaries:
-                # 如果是起点或终点节点，需要特殊处理
-                if boundary == start_node_boundary or boundary == end_node_boundary:
-                    # 如果是连接到节点本身的线段，允许穿过该节点边界
-                    if (p1 == start_pos and p2 == start_boundary_point) or \
-                            (p1 == start_boundary_point and p2 == start_outside) or \
-                            (p1 == end_boundary_point and p2 == end_pos) or \
-                            (p1 == end_outside and p2 == end_boundary_point):
-                        continue
-                # 检查线段是否与节点边界相交
-                if line_intersects_rect(p1, p2, boundary['extended'], boundary.get('edges', [])):
-                    return boundary
-            return None
-
-        # 根据障碍物计算绕行路径（合并水平、垂直分支）
-
-        def calculate_detour(p1, p2, obstacle):
-            ext_rect = obstacle['extended']
-            dx = p2.x() - p1.x()
-            dy = p2.y() - p1.y()
-
-            # 定义绕行距离常量（将其移到函数开头定义）
-            clear_distance = 10
-
-            # 更精确地计算绕行方向
-            to_end_vector = QPointF(end_pos.x() - p1.x(), end_pos.y() - p1.y())
-
-            # 考虑与起点或终点的关系
-            if obstacle == start_node_boundary:
-                # 强制绕行，避免穿过起点节点
-                if start_port.direction == 'left':
-                    y_detour = ext_rect.top() - clear_distance if to_end_vector.y() < 0 else ext_rect.bottom() + clear_distance
-                    return [QPointF(p1.x(), y_detour), QPointF(p2.x(), y_detour)]
-                elif start_port.direction == 'right':
-                    y_detour = ext_rect.top() - clear_distance if to_end_vector.y() < 0 else ext_rect.bottom() + clear_distance
-                    return [QPointF(p1.x(), y_detour), QPointF(p2.x(), y_detour)]
-
-            # 一般情况下的绕行逻辑
-            horizontal_dominant = abs(dx) > abs(dy)
-
-            if horizontal_dominant:
-                y_detour = ext_rect.top() - clear_distance if to_end_vector.y() < 0 else ext_rect.bottom() + clear_distance
-                return [QPointF(p1.x(), y_detour), QPointF(p2.x(), y_detour)]
-            else:
-                x_detour = ext_rect.left() - clear_distance if to_end_vector.x() < 0 else ext_rect.right() + clear_distance
-                return [QPointF(x_detour, p1.y()), QPointF(x_detour, p2.y())]
-        # 处理路径中的障碍物，迭代防止无限循环
-        max_iterations = 50
-        iteration_count = 0
-        changed = True
-
-        while changed and iteration_count < max_iterations:
-            changed = False
-            i = 0
-            while i < len(path_points) - 1:
-                p1 = path_points[i]
-                p2 = path_points[i + 1]
-                obstacle = find_obstacle(p1, p2)
-                if obstacle:
-                    detour_points = calculate_detour(p1, p2, obstacle)
-                    if detour_points:
-                        path_points = path_points[:i + 1] + detour_points + path_points[i + 1:]
-                        changed = True
-                        iteration_count += 1
-                        break  # 重新检查更新后的路径
-                i += 1
-
-        # 简化路径：移除几乎共线的点
-        def simplify_path(points, tolerance=1.0):
-            if len(points) <= 2:
-                return points
-            result = [points[0]]
-            for i in range(1, len(points) - 1):
-                prev = result[-1]
-                current = points[i]
-                next_pt = points[i + 1]
-                if (abs(prev.x() - current.x()) < tolerance and abs(current.x() - next_pt.x()) < tolerance) or \
-                        (abs(prev.y() - current.y()) < tolerance and abs(current.y() - next_pt.y()) < tolerance):
-                    continue
-                result.append(current)
-            result.append(points[-1])
-            return result
-
-        simplified_points = simplify_path(path_points)
-
-        # 创建平滑的贝塞尔路径
-        path = QPainterPath()
-        if not simplified_points:
-            return path
-
-        path.moveTo(simplified_points[0])
-        tolerance = 1.0
-        if len(simplified_points) == 2:
-            path.lineTo(simplified_points[1])
-        else:
-            for i in range(1, len(simplified_points)):
-                current = simplified_points[i]
-                prev = simplified_points[i - 1]
-                # 对拐角进行平滑处理
-                if i < len(simplified_points) - 1:
-                    next_pt = simplified_points[i + 1]
-                    v1 = QPointF(current.x() - prev.x(), current.y() - prev.y())
-                    v2 = QPointF(next_pt.x() - current.x(), next_pt.y() - current.y())
-                    is_corner = (abs(v1.x()) > tolerance and abs(v2.y()) > tolerance) or \
-                                (abs(v1.y()) > tolerance and abs(v2.x()) > tolerance)
-                    if is_corner:
-                        line1 = QLineF(prev, current)
-                        line2 = QLineF(current, next_pt)
-                        if line1.length() > radius and line2.length() > radius:
-                            corner_start = QPointF(
-                                prev.x() + v1.x() * (1 - radius / line1.length()),
-                                prev.y() + v1.y() * (1 - radius / line1.length())
-                            )
-                            path.lineTo(corner_start)
-                            corner_end = QPointF(
-                                current.x() + v2.x() * (radius / line2.length()),
-                                current.y() + v2.y() * (radius / line2.length())
-                            )
-                            path.quadTo(current, corner_end)
-                        else:
-                            path.lineTo(current)
+        # ------ 合并重叠边界（用于交点检测）------
+        paths = []
+        for r in rects:
+            p = QPainterPath()
+            p.addRect(r)
+            paths.append(p)
+        merged_paths = []
+        while paths:
+            current = paths.pop(0)
+            merged = True
+            while merged:
+                merged = False
+                remaining = []
+                for other in paths:
+                    if current.intersects(other):
+                        current = current.united(other)
+                        merged = True
                     else:
-                        path.lineTo(current)
-                else:
-                    path.lineTo(current)
+                        remaining.append(other)
+                paths = remaining
+            merged_paths.append(current)
+        # merged_paths 中的每个 QPainterPath 的多边形用于后续交点检测
 
-        # 调试代码：在节点边界中点处绘制三角形，帮助判断路径
-        def add_debug_triangle(target_path, center, size=10):
-            p1 = QPointF(center.x(), center.y() - size / 2)
-            p2 = QPointF(center.x() - size / 2, center.y() + size / 2)
-            p3 = QPointF(center.x() + size / 2, center.y() + size / 2)
-            triangle = QPolygonF([p1, p2, p3])
-            debug_path = QPainterPath()
-            debug_path.addPolygon(triangle)
-            target_path.addPath(debug_path)
+        # ------ 计算边界中点 ------
+        start_mid = get_boundary_midpoint(start_node_rect, start_port.direction)
+        end_mid = get_boundary_midpoint(end_node_rect, end_port.direction)
 
-        # 在起始节点和结束节点的边界中点处绘制调试用三角形
-        add_debug_triangle(path, start_boundary_point)
-        add_debug_triangle(path, end_boundary_point)
+        # ------ 构造候选路径（中间部分）------
+        # 候选路径1：先水平，再垂直
+        candidate1_pts = [start_mid, QPointF(end_mid.x(), start_mid.y()), end_mid]
+        # 候选路径2：先垂直，再水平
+        candidate2_pts = [start_mid, QPointF(start_mid.x(), end_mid.y()), end_mid]
 
-        return path
+        # ------ 交点计算与替换处理 ------
+        def compute_intersections_for_boundary(candidate_pts, boundary):
+            """
+            对 candidate_pts 与 boundary（由 QPainterPath.toFillPolygon() 得到的多边形）
+            计算交点，返回列表 [(t, point), ...]，其中 t 为候选路径上累计距离参数。
+            注意：如果候选段与边界边共线，则跳过（共线部分不处理）。
+            """
+            poly = boundary.toFillPolygon()
+            intersections = []
+            cum = get_cumulative_lengths(candidate_pts)
+            for i in range(len(candidate_pts) - 1):
+                seg_line = QLineF(candidate_pts[i], candidate_pts[i + 1])
+                seg_len = seg_line.length()
+                horizontal_seg = abs(candidate_pts[i].y() - candidate_pts[i + 1].y()) < tol
+                vertical_seg = abs(candidate_pts[i].x() - candidate_pts[i + 1].x()) < tol
+                for j in range(poly.count()):
+                    q1 = poly.at(j)
+                    q2 = poly.at((j + 1) % poly.count())
+                    edge_line = QLineF(q1, q2)
+                    if horizontal_seg and abs(q1.y() - q2.y()) < tol:
+                        continue
+                    if vertical_seg and abs(q1.x() - q2.x()) < tol:
+                        continue
+                    found, ipt = intersect_line(QLineF(candidate_pts[i], candidate_pts[i + 1]),
+                                                QLineF(q1, q2))
+                    if found and ipt is not None:
+                        frac = QLineF(candidate_pts[i], ipt).length() / seg_len if seg_len > 0 else 0
+                        t = cum[i] + frac * seg_len
+                        if not any(equal_points(ipt, p) for (_, p) in intersections):
+                            intersections.append((t, ipt))
+            intersections.sort(key=lambda x: x[0])
+            return intersections
+
+        def get_shorter_boundary_arc(poly, A, B, tol=tol):
+            """
+            对于给定多边形 poly (QPolygonF) 和位于其上的两点 A, B，
+            查找连接这两点的最短边界路径。
+            修复了处理点在同一边上或接近顶点时的问题。
+            """
+            n = poly.count()
+
+            # 检查点是否与顶点接近
+            def point_at_vertex(pt):
+                for i in range(n):
+                    if equal_points(pt, poly.at(i), tol):
+                        return i
+                return None
+
+            # 查找点在哪条边上
+            def find_edge(pt):
+                # 先检查是否在顶点上
+                vertex_idx = point_at_vertex(pt)
+                if vertex_idx is not None:
+                    return vertex_idx, "vertex"
+
+                # 再检查在哪条边上
+                for i in range(n):
+                    p0 = poly.at(i)
+                    p1 = poly.at((i + 1) % n)
+                    seg = QLineF(p0, p1)
+                    if seg.length() < tol:
+                        continue
+
+                    # 检查点是否在线段上
+                    if abs(QLineF(p0, pt).length() + QLineF(pt, p1).length() - seg.length()) < tol:
+                        return i, "edge"
+
+                return None, None
+
+            # 查找A和B的位置
+            posA, typeA = find_edge(A)
+            posB, typeB = find_edge(B)
+
+            if posA is None or posB is None:
+                return [A, B]  # 点不在多边形上
+
+            # 特殊情况：点在同一位置
+            if typeA == typeB and posA == posB:
+                if typeA == "vertex" or (typeA == "edge" and equal_points(A, B, tol)):
+                    return [A, B]
+
+            # 特殊情况：点在同一边上
+            if typeA == "edge" and typeB == "edge" and posA == posB:
+                return [A, B]  # 直接连接，无需绕行
+
+            # 准备构建路径
+            path_cw = [A]  # 顺时针路径
+            path_ccw = [A]  # 逆时针路径
+
+            # 顺时针路径构建
+            if typeA == "vertex":
+                i = posA
+            else:  # edge
+                path_cw.append(poly.at((posA + 1) % n))
+                i = (posA + 1) % n
+
+            while True:
+                next_i = (i + 1) % n
+
+                # 检查是否到达B所在位置
+                if typeB == "vertex" and i == posB:
+                    break
+                if typeB == "edge" and i == posB:
+                    break
+
+                path_cw.append(poly.at(next_i))
+                i = next_i
+
+                # 防止无限循环
+                if i == posA:
+                    break
+
+            # 确保路径末尾是B
+            if not equal_points(path_cw[-1], B, tol):
+                path_cw.append(B)
+
+            # 逆时针路径构建
+            if typeA == "vertex":
+                i = posA
+            else:  # edge
+                path_ccw.append(poly.at(posA))
+                i = posA
+
+            while True:
+                prev_i = (i - 1 + n) % n
+
+                # 检查是否到达B所在位置
+                if typeB == "vertex" and prev_i == posB:
+                    break
+                if typeB == "edge" and prev_i == posB:
+                    break
+
+                path_ccw.append(poly.at(prev_i))
+                i = prev_i
+
+                # 防止无限循环
+                if i == posA:
+                    break
+
+            # 确保路径末尾是B
+            if not equal_points(path_ccw[-1], B, tol):
+                path_ccw.append(B)
+
+            # 移除路径中的重复点
+            def clean_path(path):
+                if len(path) <= 1:
+                    return path
+                result = [path[0]]
+                for pt in path[1:]:
+                    if not equal_points(result[-1], pt, tol):
+                        result.append(pt)
+                return result
+
+            path_cw = clean_path(path_cw)
+            path_ccw = clean_path(path_ccw)
+
+            # 计算路径长度并选择较短的
+            def path_length(path):
+                total = 0
+                for i in range(len(path) - 1):
+                    total += QLineF(path[i], path[i + 1]).length()
+                return total
+
+            len_cw = path_length(path_cw)
+            len_ccw = path_length(path_ccw)
+
+            return path_cw if len_cw <= len_ccw else path_ccw
+
+        def replace_candidate_segment(candidate_pts, t1, A, t2, B, replacement_arc):
+            """
+            将 candidate_pts 中累计参数在 [t1, t2] 内的部分替换为 replacement_arc（点列表），
+            返回新的候选路径（不改变原始其余部分）。
+            """
+            cum = get_cumulative_lengths(candidate_pts)
+            i1 = 0
+            for i in range(len(cum) - 1):
+                if cum[i] <= t1 <= cum[i + 1]:
+                    i1 = i
+                    break
+            i2 = 0
+            for i in range(len(cum) - 1):
+                if cum[i] <= t2 <= cum[i + 1]:
+                    i2 = i
+                    break
+            new_candidate = candidate_pts[:i1 + 1]
+            if not equal_points(new_candidate[-1], A):
+                new_candidate.append(A)
+            for pt in replacement_arc:
+                if not equal_points(new_candidate[-1], pt):
+                    new_candidate.append(pt)
+            if not equal_points(new_candidate[-1], B):
+                new_candidate.append(B)
+            new_candidate.extend(candidate_pts[i2 + 1:])
+            return new_candidate
+
+        def process_candidate_path(candidate_pts, merged_paths):
+            new_candidate = candidate_pts[:]  # 初始候选路径
+            for mpath in merged_paths:
+                inters = compute_intersections_for_boundary(new_candidate, mpath)
+                if len(inters) == 2:
+                    (t1, pt1), (t2, pt2) = inters
+                    # print("候选路径与某边界交点数=2, 交点: ({:.2f}, {:.2f}) 和 ({:.2f}, {:.2f})".format(
+                    #     pt1.x(), pt1.y(), pt2.x(), pt2.y()))
+                    poly = mpath.toFillPolygon()
+                    arc = get_shorter_boundary_arc(poly, pt1, pt2)
+                    new_candidate = replace_candidate_segment(new_candidate, t1, pt1, t2, pt2, arc)
+            return new_candidate
+
+        # ------ 对候选路径分别处理替换 ------
+        candidate1_final = process_candidate_path(candidate1_pts, merged_paths)
+        candidate2_final = process_candidate_path(candidate2_pts, merged_paths)
+        # print("处理后候选路径1顶点：")
+        # for pt in candidate1_final:
+        #     print("  ({:.2f}, {:.2f})".format(pt.x(), pt.y()))
+        # print("处理后候选路径2顶点：")
+        # for pt in candidate2_final:
+        #     print("  ({:.2f}, {:.2f})".format(pt.x(), pt.y()))
+
+        # ------ 构造最终连接路径 ------
+        final_path = QPainterPath()
+        # 从 start_port 到 start_mid
+        final_path.moveTo(start_pos)
+        final_path.lineTo(start_mid)
+        # 添加候选路径1
+        final_path.moveTo(start_mid)
+        for pt in candidate1_final[1:]:
+            final_path.lineTo(pt)
+        # 添加候选路径2
+        final_path.moveTo(start_mid)
+        for pt in candidate2_final[1:]:
+            final_path.lineTo(pt)
+        # 从 end_mid 到 end_port
+        final_path.moveTo(end_mid)
+        final_path.lineTo(end_pos)
+
+        # ------ 调试：将所有合并后的边界也添加到最终路径中 ------
+        # boundaries_path = QPainterPath()
+        # for mpath in merged_paths:
+        #     boundaries_path.addPath(mpath)
+        # final_path.addPath(boundaries_path)
+
+        return final_path
+
+
