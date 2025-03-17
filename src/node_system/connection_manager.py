@@ -1,5 +1,5 @@
 from PySide6.QtCore import QPointF, QRectF
-from PySide6.QtGui import QPainterPath
+from PySide6.QtGui import QPainterPath, QPolygonF
 from PySide6.QtWidgets import QGraphicsItem, QGraphicsPathItem
 
 from src.node_system.connection import Connection
@@ -279,11 +279,20 @@ class ConnectionManager:
         start_outside = start_boundary_point + start_dir * offset
         end_outside = end_boundary_point + end_dir * offset
 
-        # 计算中间点，尽量使用最少直线段连接
-        if abs(start_outside.x() - end_outside.x()) > abs(start_outside.y() - end_outside.y()):
+        # 根据端口方向明确计算中间点
+        if start_port.direction in ('left', 'right') and end_port.direction in ('top', 'bottom'):
+            # 当起始端口水平，结束端口垂直时，先水平再垂直
+            mid_point = QPointF(start_outside.x(), end_outside.y())
+        elif start_port.direction in ('top', 'bottom') and end_port.direction in ('left', 'right'):
+            # 当起始端口垂直，结束端口水平时，先垂直再水平
             mid_point = QPointF(end_outside.x(), start_outside.y())
         else:
-            mid_point = QPointF(start_outside.x(), end_outside.y())
+            # 当两个端口都在水平方向或都在垂直方向时，
+            # 使用简单的差值比较，选取一个折中点
+            if abs(start_outside.x() - end_outside.x()) > abs(start_outside.y() - end_outside.y()):
+                mid_point = QPointF((start_outside.x() + end_outside.x()) / 2, start_outside.y())
+            else:
+                mid_point = QPointF(start_outside.x(), (start_outside.y() + end_outside.y()) / 2)
 
         # 初始路径点
         path_points = [
@@ -312,30 +321,54 @@ class ConnectionManager:
 
         # 检查路径段是否与障碍物相交，合并关键点判断
         def find_obstacle(p1, p2):
-            special_points = [start_pos, end_pos, start_boundary_point, start_outside, end_boundary_point, end_outside]
+            # 修改这部分：不要跳过特殊点的检测
+            # special_points = [start_pos, end_pos, start_boundary_point, start_outside, end_boundary_point, end_outside]
             for boundary in node_boundaries:
-                # 若两点都是关键连接点则跳过
-                if p1 in special_points and p2 in special_points:
-                    continue
+                # 如果是起点或终点节点，需要特殊处理
+                if boundary == start_node_boundary or boundary == end_node_boundary:
+                    # 如果是连接到节点本身的线段，允许穿过该节点边界
+                    if (p1 == start_pos and p2 == start_boundary_point) or \
+                            (p1 == start_boundary_point and p2 == start_outside) or \
+                            (p1 == end_boundary_point and p2 == end_pos) or \
+                            (p1 == end_outside and p2 == end_boundary_point):
+                        continue
+                # 检查线段是否与节点边界相交
                 if line_intersects_rect(p1, p2, boundary['extended'], boundary.get('edges', [])):
                     return boundary
             return None
 
         # 根据障碍物计算绕行路径（合并水平、垂直分支）
+
         def calculate_detour(p1, p2, obstacle):
             ext_rect = obstacle['extended']
             dx = p2.x() - p1.x()
             dy = p2.y() - p1.y()
-            to_end_vector = QPointF(end_pos.x() - p1.x(), end_pos.y() - p1.y())
-            horizontal_dominant = abs(dx) > abs(dy)
+
+            # 定义绕行距离常量（将其移到函数开头定义）
             clear_distance = 10
+
+            # 更精确地计算绕行方向
+            to_end_vector = QPointF(end_pos.x() - p1.x(), end_pos.y() - p1.y())
+
+            # 考虑与起点或终点的关系
+            if obstacle == start_node_boundary:
+                # 强制绕行，避免穿过起点节点
+                if start_port.direction == 'left':
+                    y_detour = ext_rect.top() - clear_distance if to_end_vector.y() < 0 else ext_rect.bottom() + clear_distance
+                    return [QPointF(p1.x(), y_detour), QPointF(p2.x(), y_detour)]
+                elif start_port.direction == 'right':
+                    y_detour = ext_rect.top() - clear_distance if to_end_vector.y() < 0 else ext_rect.bottom() + clear_distance
+                    return [QPointF(p1.x(), y_detour), QPointF(p2.x(), y_detour)]
+
+            # 一般情况下的绕行逻辑
+            horizontal_dominant = abs(dx) > abs(dy)
+
             if horizontal_dominant:
                 y_detour = ext_rect.top() - clear_distance if to_end_vector.y() < 0 else ext_rect.bottom() + clear_distance
                 return [QPointF(p1.x(), y_detour), QPointF(p2.x(), y_detour)]
             else:
-                x_detour = ext_rect.right() + clear_distance if to_end_vector.x() > 0 else ext_rect.left() - clear_distance
+                x_detour = ext_rect.left() - clear_distance if to_end_vector.x() < 0 else ext_rect.right() + clear_distance
                 return [QPointF(x_detour, p1.y()), QPointF(x_detour, p2.y())]
-
         # 处理路径中的障碍物，迭代防止无限循环
         max_iterations = 50
         iteration_count = 0
@@ -416,5 +449,18 @@ class ConnectionManager:
                 else:
                     path.lineTo(current)
 
-        return path
+        # 调试代码：在节点边界中点处绘制三角形，帮助判断路径
+        def add_debug_triangle(target_path, center, size=10):
+            p1 = QPointF(center.x(), center.y() - size / 2)
+            p2 = QPointF(center.x() - size / 2, center.y() + size / 2)
+            p3 = QPointF(center.x() + size / 2, center.y() + size / 2)
+            triangle = QPolygonF([p1, p2, p3])
+            debug_path = QPainterPath()
+            debug_path.addPolygon(triangle)
+            target_path.addPath(debug_path)
 
+        # 在起始节点和结束节点的边界中点处绘制调试用三角形
+        add_debug_triangle(path, start_boundary_point)
+        add_debug_triangle(path, end_boundary_point)
+
+        return path
