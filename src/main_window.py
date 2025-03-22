@@ -420,7 +420,6 @@ class MainWindow(QMainWindow):
         try:
             # 从文件加载流水线
             pipeline = Pipeline.load_from_file(file_path)
-            print(f"加载了流水线: {pipeline}")
 
             # 清除画布上的现有内容
             self.canvas.clear()
@@ -503,23 +502,38 @@ class MainWindow(QMainWindow):
             print(f"加载流水线时出错: {str(e)}")
 
     def _layout_nodes(self, pipeline, node_mapping):
-        """使用简单的层次布局算法为节点分配位置"""
-        # 识别入口节点（没有被其他节点引用的节点）
+        """优化的节点布局算法，按照连接类型放置节点"""
+        # 识别入口节点
         entry_nodes = pipeline.get_entry_nodes()
 
-        # 使用修改后的广度优先搜索来分配层级和位置
-        visited = set()
-        node_levels = {}  # 存储节点名称到其层级的映射
+        # 存储节点层级和水平位置
+        node_levels = {}  # 垂直位置（层级）
+        node_x_positions = {}  # 水平位置
 
-        # 从入口节点开始，层级为0
+        # 存储节点的入边
+        node_incoming_edges = {}
+
+        # 第一步：使用BFS确定节点层级和收集入边信息
+        visited = set()
         queue = [(node.name, 0) for node in entry_nodes]
 
         while queue:
             node_name, level = queue.pop(0)
 
             if node_name in visited:
-                # 如果节点被多次访问，取最大层级
-                node_levels[node_name] = max(node_levels.get(node_name, 0), level)
+                # 更新为最小层级
+                if level < node_levels.get(node_name, float('inf')):
+                    node_levels[node_name] = level
+                    # 需要重新处理后继节点
+                    task_node = pipeline.get_node(node_name)
+                    if task_node:
+                        for next_type in ['next', 'on_error', 'interrupt']:
+                            next_nodes = getattr(task_node, next_type, None)
+                            if next_nodes:
+                                if isinstance(next_nodes, str):
+                                    next_nodes = [next_nodes]
+                                for next_node in next_nodes:
+                                    queue.append((next_node, level + 1))
                 continue
 
             visited.add(node_name)
@@ -530,42 +544,105 @@ class MainWindow(QMainWindow):
             if not task_node:
                 continue
 
-            # 将所有出站连接加入队列
+            # 处理所有类型的后继节点
             for next_type in ['next', 'on_error', 'interrupt']:
                 next_nodes = getattr(task_node, next_type, None)
                 if next_nodes:
                     if isinstance(next_nodes, str):
                         next_nodes = [next_nodes]
                     for next_node in next_nodes:
+                        # 记录入边
+                        if next_node not in node_incoming_edges:
+                            node_incoming_edges[next_node] = []
+                        node_incoming_edges[next_node].append((node_name, next_type))
+
+                        # 加入队列
                         queue.append((next_node, level + 1))
 
-        # 统计每个层级的节点数
-        nodes_per_level = {}
+        # 第二步：按层级组织节点
+        nodes_by_level = {}
         for node_name, level in node_levels.items():
-            nodes_per_level[level] = nodes_per_level.get(level, 0) + 1
+            if level not in nodes_by_level:
+                nodes_by_level[level] = []
+            nodes_by_level[level].append(node_name)
 
-        # 为每个节点设置位置
-        level_counters = {}  # 跟踪每个层级中已定位的节点数
-        grid_spacing_x = 300  # 节点之间的水平间距
-        grid_spacing_y = 250  # 层级之间的垂直间距
+        # 第三步：计算水平位置
+        # 首先处理入口节点
+        for i, node in enumerate(entry_nodes):
+            node_x_positions[node.name] = i * 2  # 给入口节点留足空间
 
-        for node_name, level in sorted(node_levels.items(), key=lambda x: (x[1], x[0])):
-            # 初始化或增加此层级的计数器
-            if level not in level_counters:
-                level_counters[level] = 0
-            level_counters[level] += 1
+        # 处理每一层的节点
+        for level in sorted(nodes_by_level.keys())[1:]:  # 跳过第0层（入口节点）
+            used_positions = set()  # 记录此层已使用的位置
 
-            # 计算水平位置
-            count = level_counters[level]
-            total = nodes_per_level[level]
+            # 首先处理有前驱的节点
+            for node_name in list(nodes_by_level[level]):
+                if node_name in node_incoming_edges:
+                    # 根据前驱关系计算位置
+                    suggested_x = []
 
-            # 在层级内水平居中排列节点
-            x = (count - 0.5 * (total + 1)) * grid_spacing_x
-            y = level * grid_spacing_y
+                    for pred_name, relation_type in node_incoming_edges[node_name]:
+                        if pred_name in node_x_positions:
+                            pred_x = node_x_positions[pred_name]
 
-            # 设置可视节点的位置
-            if node_name in node_mapping:
+                            if relation_type == 'next':
+                                # next关系：正下方
+                                suggested_x.append(pred_x)
+                            elif relation_type == 'on_error':
+                                # on_error关系：左下方
+                                suggested_x.append(pred_x - 1)
+                            elif relation_type == 'interrupt':
+                                # interrupt关系：右下方
+                                suggested_x.append(pred_x + 1)
+
+                    if suggested_x:
+                        # 计算平均位置并四舍五入
+                        avg_x = sum(suggested_x) / len(suggested_x)
+                        target_x = round(avg_x)
+
+                        # 处理位置冲突
+                        while target_x in used_positions:
+                            # 从目标位置开始，交替向左右寻找空位
+                            offset = 1
+                            found = False
+                            while not found and offset <= 10:  # 限制偏移范围
+                                # 尝试右侧
+                                if target_x + offset not in used_positions:
+                                    target_x += offset
+                                    found = True
+                                    break
+                                # 尝试左侧
+                                if target_x - offset not in used_positions:
+                                    target_x -= offset
+                                    found = True
+                                    break
+                                offset += 1
+
+                            if not found:
+                                # 如果找不到空位，就放在最右边
+                                target_x = max(used_positions) + 1 if used_positions else 0
+
+                        node_x_positions[node_name] = target_x
+                        used_positions.add(target_x)
+
+            # 处理剩余的节点（无前驱或前驱不在已处理节点中）
+            for node_name in nodes_by_level[level]:
+                if node_name not in node_x_positions:
+                    # 放在最右边
+                    target_x = max(used_positions) + 1 if used_positions else 0
+                    node_x_positions[node_name] = target_x
+                    used_positions.add(target_x)
+
+        # 应用布局
+        grid_spacing_x = 500  # 节点之间的水平间距
+        grid_spacing_y = 300  # 层级之间的垂直间距
+
+        for node_name in node_mapping:
+            if node_name in node_x_positions and node_name in node_levels:
+                x = node_x_positions[node_name] * grid_spacing_x
+                y = node_levels[node_name] * grid_spacing_y
                 node_mapping[node_name].set_position(x, y)
+
     @Slot(QDockWidget, bool)
     def toggle_dock_visibility(self, dock, visible):
         """切换停靠窗口的可见性"""

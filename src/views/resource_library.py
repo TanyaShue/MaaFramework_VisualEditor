@@ -158,7 +158,6 @@ class ResourceLibrary(QWidget):
     @Slot(str)
     def open_resource(self, file_path):
         """Handle opening a resource file."""
-        print(file_path)  # Print the JSON file path as requested
         self.resource_opened.emit(file_path)
 
     # 在ResourceLibrary类中添加以下方法
