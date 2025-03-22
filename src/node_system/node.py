@@ -1,5 +1,5 @@
 from PySide6.QtCore import QRectF, Qt, QPointF, Signal, QObject
-from PySide6.QtGui import QPainter, QFont, QColor, QPen, QBrush, QPainterPath
+from PySide6.QtGui import QPainter, QFont, QColor, QPen, QBrush, QPainterPath, QPixmap
 from PySide6.QtWidgets import QGraphicsItem
 
 from src.node_system.port import InputPort, OutputPort
@@ -11,15 +11,22 @@ class NodeSignals(QObject):
 
 
 class Node(QGraphicsItem):
-    def __init__(self, id, title, parent=None):
+    def __init__(self, id, title, task_node=None, parent=None, default_image_path="default_image.png"):
         super().__init__(parent)
         self.id = id
         self.title = title
-        self.bounds = QRectF(0, 0, 240, 160)
-        self.properties = {}
+        self.task_node = task_node  # Store TaskNode object instead of properties dict
+        self.bounds = QRectF(0, 0, 240, 200)  # Make slightly taller for image
         self.header_height = 30
         self.content_start = self.header_height + 10
         self.signals = NodeSignals()
+
+        # Image display settings
+        self.image_height = 80  # Height for the image display area
+        self.default_image_path = default_image_path
+        self.default_image = None
+        self.recognition_image = None  # Will hold the image to recognize
+        self._load_images()  # Load images
 
         # Node can be selected and moved
         self.setFlag(QGraphicsItem.ItemIsSelectable)
@@ -32,6 +39,55 @@ class Node(QGraphicsItem):
         # Create a collapsed state
         self.collapsed = False
         self.original_height = self.bounds.height()
+
+    def _load_images(self):
+        """Load the default image and recognition image"""
+        # Load default image
+        try:
+            self.default_image = QPixmap(self.default_image_path)
+            if self.default_image.isNull():
+                # Create a simple default image if file can't be loaded
+                self.default_image = QPixmap(self.image_height, self.image_height)
+                self.default_image.fill(QColor(200, 200, 200))
+        except:
+            # Create a simple default image if file can't be loaded
+            self.default_image = QPixmap(self.image_height, self.image_height)
+            self.default_image.fill(QColor(200, 200, 200))
+
+        # Load recognition image if task_node is provided
+        if self.task_node:
+            self._load_recognition_image()
+        else:
+            self.recognition_image = self.default_image
+
+    def _load_recognition_image(self):
+        """Load the recognition image from the task_node"""
+        image_path = None
+
+        # Try different possible ways the image path might be stored
+        if hasattr(self.task_node, 'recognition') and isinstance(self.task_node.recognition, str):
+            # If recognition itself is a path or contains path information
+            image_path = self.task_node.recognition
+
+        # Check if there's an image_path in algorithm properties
+        elif hasattr(self.task_node, 'get_algorithm_property'):
+            possible_keys = ['image_path', 'imagePath', 'image', 'recognition_image']
+            for key in possible_keys:
+                path = self.task_node.get_algorithm_property(key)
+                if path:
+                    image_path = path
+                    break
+
+        # Try to load the image if a path was found
+        if image_path:
+            try:
+                self.recognition_image = QPixmap(image_path)
+                if self.recognition_image.isNull():
+                    self.recognition_image = self.default_image
+            except:
+                self.recognition_image = self.default_image
+        else:
+            self.recognition_image = self.default_image
 
     def _initialize_ports(self):
         # Calculate width and height for positioning
@@ -122,32 +178,63 @@ class Node(QGraphicsItem):
             f"ID: {self.id}"
         )
 
-        # If not collapsed, draw properties section
+        # If not collapsed, draw content section
         if not self.collapsed:
             painter.setPen(QPen(QColor(100, 100, 100), 0.5))
             y_pos = self.header_height
             painter.drawLine(0, y_pos, self.bounds.width(), y_pos)
 
-            # Draw properties
-            y_pos = self.content_start
-            painter.setPen(QColor(30, 30, 30))
-            painter.setFont(QFont("Arial", 8))
-
-            for i, (key, value) in enumerate(self.properties.items()):
-                if y_pos + 15 > self.bounds.height():
-                    # Don't render properties that would go outside the node
-                    break
-
-                # Draw property key
-                property_text = f"{key}: {value}"
-                painter.drawText(
-                    QRectF(10, y_pos, self.bounds.width() - 20, 15),
-                    Qt.AlignVCenter | Qt.AlignLeft,
-                    property_text
+            # Draw the recognition image
+            if self.recognition_image and not self.recognition_image.isNull():
+                img_rect = QRectF(
+                    (self.bounds.width() - self.image_height) / 2,  # Centered horizontally
+                    self.content_start,
+                    self.image_height,
+                    self.image_height
                 )
-                y_pos += 15
+                painter.drawPixmap(img_rect.toRect(), self.recognition_image)
 
-        # If selected, add an effect
+            # Draw TaskNode properties below the image
+            if self.task_node:
+                y_pos = self.content_start + self.image_height + 10
+                painter.setPen(QColor(30, 30, 30))
+                painter.setFont(QFont("Arial", 8))
+
+                # Display key TaskNode properties
+                properties_to_display = []
+
+                # Add essential properties
+                if hasattr(self.task_node, 'recognition'):
+                    properties_to_display.append(("Recognition", self.task_node.recognition))
+
+                if hasattr(self.task_node, 'action'):
+                    properties_to_display.append(("Action", self.task_node.action))
+
+                if hasattr(self.task_node, 'enabled'):
+                    properties_to_display.append(("Enabled", str(self.task_node.enabled)))
+
+                # Add important algorithm properties
+                if hasattr(self.task_node, '_algorithm_properties'):
+                    for key, value in self.task_node._algorithm_properties.items():
+                        if isinstance(value, (str, int, float, bool)):
+                            properties_to_display.append((key, str(value)))
+
+                # Draw the properties
+                for key, value in properties_to_display:
+                    if y_pos + 15 > self.bounds.height():
+                        # Don't render properties that would go outside the node
+                        break
+
+                    # Draw property text
+                    property_text = f"{key}: {value}"
+                    painter.drawText(
+                        QRectF(10, y_pos, self.bounds.width() - 20, 15),
+                        Qt.AlignVCenter | Qt.AlignLeft,
+                        property_text
+                    )
+                    y_pos += 15
+
+        # If selected, add a highlight effect
         if self.isSelected():
             highlight_rect = self.bounds.adjusted(-2, -2, 2, 2)
             painter.setPen(QPen(QColor(255, 165, 0), 2, Qt.DashLine))
@@ -208,28 +295,21 @@ class Node(QGraphicsItem):
         """Return all output ports as a dictionary"""
         return self.output_ports
 
-    def update_properties(self, props):
-        # Update properties and emit signals
-        for key, value in props.items():
-            old_value = self.properties.get(key)
-            if old_value != value:
-                self.properties[key] = value
+    def set_task_node(self, task_node):
+        """Set or update the TaskNode associated with this Node"""
+        self.task_node = task_node
+        self._load_recognition_image()
+        self.resize_to_content()  # Adjust size to fit content
+        self.update()  # Force redraw
+
+        # Emit signals for properties that changed (for compatibility)
+        if task_node and hasattr(task_node, 'to_dict'):
+            for key, value in task_node.to_dict().items():
                 self.signals.propertyChanged.emit(self.id, key, value)
-        self.update()  # Force redraw
 
-    def add_property(self, key, value):
-        self.properties[key] = value
-        self.signals.propertyChanged.emit(self.id, key, value)
-        self.update()  # Force redraw
-
-    def remove_property(self, key):
-        if key in self.properties:
-            del self.properties[key]
-            self.signals.propertyChanged.emit(self.id, key, None)
-            self.update()  # Force redraw
-
-    def get_property(self, key, default=None):
-        return self.properties.get(key, default)
+    def get_task_node(self):
+        """Return the TaskNode object"""
+        return self.task_node
 
     def toggle_collapse(self):
         """Toggle between collapsed (header only) and expanded state"""
@@ -259,13 +339,15 @@ class Node(QGraphicsItem):
         super().mousePressEvent(event)
 
     def resize_to_content(self):
-        """Resize the node to fit all properties"""
-        properties_count = len(self.properties)
+        """Resize the node to fit content"""
         min_height = self.header_height + 10  # Header plus padding
 
-        # Calculate needed height
-        properties_height = properties_count * 15 + 20  # Each property row plus padding
-        new_height = max(min_height, properties_height + self.header_height)
+        # Calculate needed height for image and properties
+        property_count = len(self.task_node._algorithm_properties) + 3 if self.task_node else 0
+        properties_height = property_count * 15 + 20  # Each property row plus padding
+
+        content_height = self.content_start + self.image_height + properties_height
+        new_height = max(min_height, content_height)
 
         # Update bounds
         if not self.collapsed:
