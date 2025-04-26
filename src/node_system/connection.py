@@ -6,20 +6,12 @@ from PySide6.QtWidgets import QGraphicsItem
 
 
 class Connection(QGraphicsItem):
-    # 类级别的共享数据和计时器
-    all_connections = []
-    shared_animation_timer = None
-
     def __init__(self, start_port, end_port, scene):
         super().__init__()
         self.start_port = start_port
         self.end_port = end_port
         self.scene = scene
         self.dash_offset = 0.0  # 用于虚线动画
-
-        # 性能优化：缓存路径的复杂度级别
-        self.current_lod = 0  # 0 = 高细节, 1 = 中等细节, 2 = 低细节
-        self.path_is_dirty = True  # 路径是否需要更新
 
         # 允许选择，且层级低于节点
         self.setFlag(QGraphicsItem.ItemIsSelectable)
@@ -39,33 +31,17 @@ class Connection(QGraphicsItem):
         if self.scene:
             self.scene.addItem(self)
 
-        # 性能优化：使用共享计时器
-        if Connection.shared_animation_timer is None:
-            Connection.shared_animation_timer = QTimer()
-            Connection.shared_animation_timer.timeout.connect(Connection.update_all_animations)
-            Connection.shared_animation_timer.start(50)  # 每50毫秒更新一次
+        # 设置动画计时器
+        self.animation_timer = QTimer()
+        self.animation_timer.timeout.connect(self.update_animation)
+        self.animation_timer.start(50)  # 每50毫秒更新一次
 
-        Connection.all_connections.append(self)
-
-    @classmethod
-    def update_all_animations(cls):
-        """更新所有连接的动画状态"""
-        for connection in cls.all_connections:
-            connection.dash_offset -= 1.0  # 负向偏移使虚线从起点向终点移动
-            if connection.dash_offset < -20:  # 防止数值过小
-                connection.dash_offset = 0.0
-            connection.update()  # 触发重绘
-
-    def update_path(self):
-        """更新连接路径"""
-        if not self.path_is_dirty:
-            return  # 如果路径没有变化，避免不必要的更新
-
-        self.prepareGeometryChange()
-        # 性能优化：生成连线路径
-        self.path = build_connection_path(self.start_port, self.end_port, self.scene)
-        self.path_is_dirty = False  # 标记路径已更新
-        self.update()
+    def update_animation(self):
+        """更新虚线动画状态"""
+        self.dash_offset -= 1.0  # 负向偏移使虚线从起点向终点移动
+        if self.dash_offset < -20:  # 防止数值过小
+            self.dash_offset = 0.0
+        self.update()  # 触发重绘
 
     def get_source(self):
         return self.start_port
@@ -73,22 +49,14 @@ class Connection(QGraphicsItem):
     def get_target(self):
         return self.end_port
 
+    def update_path(self):
+        self.prepareGeometryChange()
+        # 生成连线路径
+        self.path = build_connection_path(self.start_port, self.end_port, self.scene)
+        self.update()
+
     def paint(self, painter, option, widget):
         painter.setRenderHint(QPainter.Antialiasing)
-
-        # 获取当前视图缩放比例
-        view_scale = 1.0
-        if self.scene and self.scene.views():
-            view = self.scene.views()[0]
-            view_scale = view.transform().m11()  # 获取水平缩放因子
-
-        # 根据缩放级别确定细节等级
-        if view_scale < 0.4:
-            self.current_lod = 2  # 低细节
-        elif view_scale < 0.7:
-            self.current_lod = 1  # 中等细节
-        else:
-            self.current_lod = 0  # 高细节
 
         # 根据输出端口类型确定颜色
         port_type = getattr(self.start_port, 'port_type', None)
@@ -101,35 +69,20 @@ class Connection(QGraphicsItem):
         else:
             color = QColor(100, 100, 100)
 
-        # 根据选择状态和细节级别调整线宽
-        pen_width = 8 if self.isSelected() else (6 if self.current_lod == 0 else (4 if self.current_lod == 1 else 2))
+        pen_width = 8 if self.isSelected() else 6
+        pen = QPen(color, pen_width, Qt.DashLine)
 
-        # 低细节模式下使用简单的绘制方法
-        if self.current_lod == 2:
-            # 低细节时，只绘制基本的线条
-            pen = QPen(color, pen_width, Qt.SolidLine)
-            painter.setPen(pen)
+        # 设置虚线样式，并偏移动画
+        dash_pattern = [4, 4]  # 4个单位的线，4个单位的空白
+        pen.setDashPattern(dash_pattern)
+        pen.setDashOffset(self.dash_offset)
 
-            # 获取起点和终点
-            start_pos = self.start_port.mapToScene(self.start_port.boundingRect().center())
-            end_pos = self.end_port.mapToScene(self.end_port.boundingRect().center())
+        painter.setPen(pen)
 
-            # 绘制直线
-            simple_path = QPainterPath()
-            simple_path.moveTo(start_pos)
-            simple_path.lineTo(end_pos)
-            painter.drawPath(simple_path)
-        else:
-            # 正常绘制带虚线的路径
-            pen = QPen(color, pen_width, Qt.DashLine)
+        # 绘制连线路径
+        painter.drawPath(self.path)
 
-            # 设置虚线样式
-            dash_pattern = [4, 4]  # 4个单位的线，4个单位的空白
-            pen.setDashPattern(dash_pattern)
-            pen.setDashOffset(self.dash_offset)
-
-            painter.setPen(pen)
-            painter.drawPath(self.path)
+    # 已移除箭头绘制功能
 
     def boundingRect(self):
         return self.path.boundingRect().adjusted(-5, -5, 5, 5)
@@ -149,15 +102,7 @@ class Connection(QGraphicsItem):
         # 与端口断开连接并从场景中移除
         self.start_port.disconnect(self)
         self.end_port.disconnect(self)
-
-        # 从连接列表中移除
-        if self in Connection.all_connections:
-            Connection.all_connections.remove(self)
-
-        # 如果没有连接了，停止共享计时器
-        if not Connection.all_connections and Connection.shared_animation_timer:
-            Connection.shared_animation_timer.stop()
-
+        self.animation_timer.stop()  # 停止动画计时器
         if self.scene:
             self.scene.removeItem(self)
 
@@ -176,49 +121,52 @@ def get_direction(direction_str):
 
 def build_connection_path(start_port, end_port, scene_or_pos):
     """
-    优化的连线路径生成函数
+    统一的连线路径生成函数，既可用于临时连线也可用于正式连线
+
+    参数：
+        start_port: 起始端口
+        end_port: 结束端口，若为None则表示临时连线
+        scene_or_pos: 若end_port为None，则此参数为目标位置；否则为场景对象
     """
-    # 临时连线情况的优化
+    # 临时连线情况
     if end_port is None:
         target_pos = scene_or_pos  # 此时scene_or_pos是目标位置
         start_pos = start_port.mapToScene(start_port.boundingRect().center())
-        start_dir = get_direction(start_port.direction)
-        ctrl_length = 50
 
-        # 使用简化的路径生成方法
+        # 获取起始方向
+        start_dir = get_direction(start_port.direction)
+        ctrl_length = 50  # 控制点距离
+
         path = QPainterPath()
         path.moveTo(start_pos)
-
-        # 根据起始方向创建控制点
         current = start_pos + start_dir * ctrl_length
         path.lineTo(current)
 
         # 根据起始方向决定中间折点
-        if abs(start_dir.x()) > 0:  # 水平方向
+        if abs(start_dir.x()) > 0:
             mid_point = QPointF(current.x(), target_pos.y())
-        else:  # 垂直方向
+        else:
             mid_point = QPointF(target_pos.x(), current.y())
-
         path.lineTo(mid_point)
         path.lineTo(target_pos)
         return path
 
-    # 正式连线情况 - 优化性能
+    # 正式连线情况
     scene = scene_or_pos
     NODE_BUFFER = 40  # 节点边界缓冲距离
 
-    # 优化：直接获取节点的边界
-    start_node = start_port.parent_node
-    end_node = end_port.parent_node
+    # 辅助函数
+    def create_boundary_rect(node):
+        return node.sceneBoundingRect().adjusted(-NODE_BUFFER, -NODE_BUFFER, NODE_BUFFER, NODE_BUFFER)
 
-    # 直接计算节点边界
-    start_node_rect = start_node.sceneBoundingRect().adjusted(-NODE_BUFFER, -NODE_BUFFER, NODE_BUFFER, NODE_BUFFER)
-    end_node_rect = end_node.sceneBoundingRect().adjusted(-NODE_BUFFER, -NODE_BUFFER, NODE_BUFFER, NODE_BUFFER)
+    def create_default_boundary(pos):
+        return QRectF(pos.x() - 10, pos.y() - 10, 20, 20).adjusted(-NODE_BUFFER, -NODE_BUFFER, NODE_BUFFER, NODE_BUFFER)
 
-    # 辅助函数：计算边界中点
     def get_boundary_midpoint(rect, direction):
+        # 计算中心点
         cx, cy = (rect.left() + rect.right()) / 2, (rect.top() + rect.bottom()) / 2
 
+        # 根据方向返回边界中点
         if direction == 'top':
             return QPointF(cx, rect.top())
         elif direction == 'bottom':
@@ -233,24 +181,60 @@ def build_connection_path(start_port, end_port, scene_or_pos):
     start_pos = start_port.mapToScene(start_port.boundingRect().center())
     end_pos = end_port.mapToScene(end_port.boundingRect().center())
 
-    # 计算边界中点
+    # 查找端口所在节点的边界
+    start_node_rect = None
+    end_node_rect = None
+
+    if scene:
+        # 查找包含端口的节点
+        nodes = [item for item in scene.items()
+                 if getattr(item, '__class__', None) and item.__class__.__name__ == 'Node']
+
+        for node in nodes:
+            r = create_boundary_rect(node)
+
+            # 获取节点的端口
+            node_ports = []
+            if hasattr(node, 'get_input_port'):
+                ip = node.get_input_port()
+                if ip:
+                    node_ports.append(ip)
+            if hasattr(node, 'get_output_ports'):
+                op = node.get_output_ports()
+                if isinstance(op, dict):
+                    node_ports.extend(op.values())
+                elif isinstance(op, list):
+                    node_ports.extend(op)
+
+            # 检查此节点是否包含我们的端口
+            for port in node_ports:
+                if port == start_port:
+                    start_node_rect = r
+                if port == end_port:
+                    end_node_rect = r
+
+    # 如果需要，使用默认边界
+    if start_node_rect is None:
+        start_node_rect = create_default_boundary(start_pos)
+    if end_node_rect is None:
+        end_node_rect = create_default_boundary(end_pos)
+
+    # 根据端口方向计算边界中点
     start_mid = get_boundary_midpoint(start_node_rect, start_port.direction)
     end_mid = get_boundary_midpoint(end_node_rect, end_port.direction)
 
-    # 创建路径
+    # 创建最终路径
     path = QPainterPath()
 
     # 起始段：从端口到边界中点
     path.moveTo(start_pos)
     path.lineTo(start_mid)
 
-    # 优化：根据节点距离调整曲线复杂度
+    # 计算三次贝塞尔曲线的控制点
     dist = QLineF(start_mid, end_mid).length()
+    control_dist = min(100, dist * 0.4)  # 限制控制点距离
 
-    # 短距离使用贝塞尔曲线，更自然
-    control_dist = min(80, dist * 0.4)
-
-    # 创建控制点
+    # 根据端口方向设置控制点，以获得自然曲线
     start_control = QPointF(start_mid)
     end_control = QPointF(end_mid)
 
@@ -273,10 +257,12 @@ def build_connection_path(start_port, end_port, scene_or_pos):
     elif end_port.direction == 'top':
         end_control.setY(end_mid.y() - control_dist)
 
-    # 绘制贝塞尔曲线
+    # 中间段：边界中点之间的平滑曲线
+    path.moveTo(start_mid)
     path.cubicTo(start_control, end_control, end_mid)
 
     # 结束段：从边界中点到端口
+    path.moveTo(end_mid)
     path.lineTo(end_pos)
 
     return path

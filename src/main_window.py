@@ -174,7 +174,6 @@ class MainWindow(QMainWindow):
         properties_dock.setObjectName("properties_dock")
         self.dock_widgets["properties"] = properties_dock
 
-
         resource_library_dock = QDockWidget("资源库", self)
         resource_library_dock.setWidget(self.resource_library)
         resource_library_dock.setAllowedAreas(Qt.LeftDockWidgetArea | Qt.RightDockWidgetArea)
@@ -195,6 +194,7 @@ class MainWindow(QMainWindow):
         self.addDockWidget(Qt.BottomDockWidgetArea, controller_dock)
 
         self.resource_library.resource_opened.connect(self.on_resource_opened)
+
     def _create_menu_bar(self):
         menu_bar = self.menuBar()
 
