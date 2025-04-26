@@ -1,7 +1,8 @@
+import time
 from PySide6.QtWidgets import (QGraphicsView, QGraphicsScene, QLabel, QVBoxLayout,
                                QWidget, QGraphicsItem, QGraphicsRectItem, QGraphicsSceneMouseEvent,
                                QApplication)
-from PySide6.QtCore import Qt, QPointF, QRectF, QByteArray, QDataStream, QIODevice, QBuffer
+from PySide6.QtCore import Qt, QPointF, QRectF, QByteArray, QDataStream, QIODevice, QBuffer, QEvent, QTime
 from PySide6.QtGui import QPen, QColor, QBrush, QTransform, QMouseEvent, QWheelEvent, QPainterPath, QKeyEvent
 
 # 导入命令模式实现
@@ -9,6 +10,8 @@ from src.canvas_commands import CommandManager, MoveNodesCommand, AddNodeCommand
     ConnectNodesCommand
 # 导入右键菜单实现
 from src.canvas_context_menus import ContextMenus
+# 导入自定义网格项
+from src.node_system.grid_item import GridItem
 
 
 class EnhancedInfiniteCanvas(QWidget):
@@ -32,7 +35,7 @@ class EnhancedInfiniteCanvas(QWidget):
         self.view.setRubberBandSelectionMode(Qt.IntersectsItemShape)  # 交叉选择
         self.view.setRenderHint(self.view.renderHints().Antialiasing)
 
-        # 绘制网格
+        # 性能优化：使用自定义网格
         self._create_grid()
 
         self.zoom_factor = 1.15
@@ -60,6 +63,11 @@ class EnhancedInfiniteCanvas(QWidget):
         # 剪贴板
         self.clipboard = []
 
+        # 性能优化：视图更新控制
+        self._last_connection_update_time = QTime.currentTime()
+        self._last_wheel_time = 0
+        self._last_selection = None
+
         # 添加到布局
         self.layout.addWidget(self.view)
 
@@ -77,31 +85,32 @@ class EnhancedInfiniteCanvas(QWidget):
 
         # 将视图与画布关联起来
         self.view.canvas = self
+
     def _create_grid(self):
-        """创建网格背景"""
-        grid_size = 20
-        grid_pen_primary = QPen(QColor(200, 200, 200), 0.8)
-        grid_pen_secondary = QPen(QColor(230, 230, 230), 0.5)
+        """创建高效的网格背景"""
+        self.grid_item = GridItem()
+        self.scene.addItem(self.grid_item)
 
-        for i in range(-10000, 10000, grid_size):
-            # 主网格线
-            if i % (grid_size * 5) == 0:
-                self.scene.addLine(i, -10000, i, 10000, grid_pen_primary)
-                self.scene.addLine(-10000, i, 10000, i, grid_pen_primary)
-            else:
-                self.scene.addLine(i, -10000, i, 10000, grid_pen_secondary)
-                self.scene.addLine(-10000, i, 10000, i, grid_pen_secondary)
+        # 添加视图变化事件以更新网格
+        self.view.viewportEvent = self._viewport_event_with_grid_update
 
-        # 添加原点标记
-        origin_rect = QGraphicsRectItem(-5, -5, 10, 10)
-        origin_rect.setPen(QPen(QColor(255, 0, 0), 1))
-        origin_rect.setBrush(QBrush(QColor(255, 0, 0, 100)))
-        self.scene.addItem(origin_rect)
+    def _viewport_event_with_grid_update(self, event):
+        # 对于可能改变视图可见范围的事件，更新网格
+        if event.type() in (QEvent.Wheel, QEvent.GraphicsSceneResize):
+            if hasattr(self, 'grid_item'):
+                self.grid_item.prepareGeometryChange()
+
+        # 调用原始的 viewportEvent 方法
+        return QGraphicsView.viewportEvent(self.view, event)
 
     def _on_selection_changed(self):
-        """处理选择变化事件"""
-        selected_items = self.scene.selectedItems()
-        selected_nodes = [item for item in selected_items if isinstance(item, Node)]
+        """优化的选择变化处理"""
+        # 使用缓存避免重复计算选中项
+        if hasattr(self, '_last_selection') and self._last_selection == self.scene.selectedItems():
+            return
+
+        self._last_selection = self.scene.selectedItems()
+        selected_nodes = [item for item in self._last_selection if isinstance(item, Node)]
 
         if not selected_nodes:
             self.info_label.setText("拖拽与缩放: 按住右键拖拽画布，滚轮缩放，左键选择/移动节点，双击空白处取消选择")
@@ -118,8 +127,19 @@ class EnhancedInfiniteCanvas(QWidget):
         else:
             # 当节点数量较多时，只显示数量，不显示具体节点ID
             self.info_label.setText(f"已选择 {node_count} 个节点")
+
     def _wheel_event(self, event: QWheelEvent):
-        """处理滚轮事件 - 缩放画布"""
+        """优化的滚轮事件处理"""
+        # 使用时间戳限制缩放频率
+        current_time = time.time()
+        if hasattr(self, '_last_wheel_time') and current_time - self._last_wheel_time < 0.05:
+            # 如果距离上次缩放不到50毫秒，忽略此次事件
+            event.accept()
+            return
+
+        self._last_wheel_time = current_time
+
+        # 标准缩放处理
         zoom_in = event.angleDelta().y() > 0
         if zoom_in:
             self.zoom(self.zoom_factor)
@@ -147,10 +167,18 @@ class EnhancedInfiniteCanvas(QWidget):
             self.view.setTransform(transform)
             self.info_label.setText(f"缩放级别: {scale:.2f}x")
 
+            # 更新网格显示
+            if hasattr(self, 'grid_item'):
+                self.grid_item.prepareGeometryChange()
+
     def pan(self, x, y):
         """平移画布"""
         self.view.horizontalScrollBar().setValue(self.view.horizontalScrollBar().value() - x)
         self.view.verticalScrollBar().setValue(self.view.verticalScrollBar().value() - y)
+
+        # 更新网格显示
+        if hasattr(self, 'grid_item'):
+            self.grid_item.prepareGeometryChange()
 
     def add_node(self, node):
         """添加节点到场景"""
@@ -168,6 +196,10 @@ class EnhancedInfiniteCanvas(QWidget):
         else:
             for port in output_ports:
                 port.setParentItem(node)
+
+        # 添加到连接管理器的节点映射表中
+        if hasattr(self.connection_manager, 'node_connection_map'):
+            self.connection_manager.node_connection_map[node] = []
 
         return node
 
@@ -191,6 +223,10 @@ class EnhancedInfiniteCanvas(QWidget):
         else:
             self.view.centerOn(0, 0)
 
+        # 更新网格
+        if hasattr(self, 'grid_item'):
+            self.grid_item.prepareGeometryChange()
+
     def clear(self):
         """清空画布：移除所有连接和节点，并重置视图"""
         for connection in self.connection_manager.connections[:]:
@@ -205,6 +241,10 @@ class EnhancedInfiniteCanvas(QWidget):
         # 清空撤销/重做栈
         self.command_manager = CommandManager()
 
+        # 重置连接管理器的节点映射表
+        if hasattr(self.connection_manager, 'node_connection_map'):
+            self.connection_manager.node_connection_map.clear()
+
     def _cancel_connection(self):
         """取消当前连接操作，委托给 ConnectionManager"""
         self.connection_manager.cancel_connection()
@@ -213,29 +253,48 @@ class EnhancedInfiniteCanvas(QWidget):
 
     def remove_node(self, node):
         """移除节点及其所有相关连接"""
+        # 性能优化：使用连接管理器的节点映射表快速查找连接
         connections_to_remove = []
 
-        input_ports = node.get_input_ports() if hasattr(node, 'get_input_ports') else [node.get_input_port()]
-        for port in input_ports:
-            if port and port.is_connected():
+        # 从节点映射表中查找连接
+        if hasattr(self.connection_manager,
+                   'node_connection_map') and node in self.connection_manager.node_connection_map:
+            connections_to_remove.extend(self.connection_manager.node_connection_map[node])
+            # 从映射表中移除节点
+            del self.connection_manager.node_connection_map[node]
+        else:
+            # 兼容旧方法：通过端口查找连接
+            input_ports = node.get_input_ports() if hasattr(node, 'get_input_ports') else [node.get_input_port()]
+            for port in input_ports:
+                if port and port.is_connected():
+                    connections_to_remove.extend(port.get_connections())
+
+            output_ports = node.get_output_ports()
+            if isinstance(output_ports, dict):
+                output_ports = list(output_ports.values())
+            for port in output_ports:
                 connections_to_remove.extend(port.get_connections())
 
-        output_ports = node.get_output_ports()
-        if isinstance(output_ports, dict):
-            output_ports = list(output_ports.values())
-        for port in output_ports:
-            connections_to_remove.extend(port.get_connections())
-
+        # 移除所有连接
         for connection in connections_to_remove:
             self.remove_connection(connection)
 
+        # 从场景中移除节点
         self.scene.removeItem(node)
+
+        # 从节点列表中移除
         if node in self.nodes:
             self.nodes.remove(node)
 
     def _mouse_press_event(self, event: QMouseEvent):
-        """处理鼠标按下事件，整合节点拖拽与连线操作"""
+        """优化的鼠标按下事件处理"""
         self.last_mouse_pos = event.position().toPoint()
+
+        # 使用场景坐标的缓存
+        scene_pos = self.view.mapToScene(event.position().toPoint())
+
+        # 使用场景项的缓存
+        item = self.scene.itemAt(scene_pos, self.view.transform())
 
         if event.button() == Qt.RightButton:
             # 处理右键点击 - 如果处于连线状态则取消，否则显示上下文菜单
@@ -244,13 +303,10 @@ class EnhancedInfiniteCanvas(QWidget):
                 event.accept()
                 return
 
-            # 获取点击位置的场景坐标和全局坐标
-            scene_pos = self.view.mapToScene(event.position().toPoint())
+            # 获取全局坐标
             global_pos = event.globalPosition().toPoint()
 
             # 检查是否点击在节点上
-            item = self.scene.itemAt(scene_pos, self.view.transform())
-
             if item and isinstance(item, Node):
                 # 显示节点右键菜单
                 self.context_menus.show_node_context_menu(item, scene_pos, global_pos)
@@ -262,10 +318,7 @@ class EnhancedInfiniteCanvas(QWidget):
             return
 
         elif event.button() == Qt.LeftButton:
-            scene_pos = self.view.mapToScene(event.position().toPoint())
-            item = self.scene.itemAt(scene_pos, self.view.transform())
-
-            # 如果处于连线状态，则尝试完成连线操作
+            # 连线状态处理
             if self.connection_manager.connecting_port:
                 target_port = None
                 target_pos = scene_pos
@@ -310,50 +363,49 @@ class EnhancedInfiniteCanvas(QWidget):
                 event.accept()
                 return
 
-            # 如果点击的是输出端口，则启动连线操作
-            if item and isinstance(item, OutputPort):
-                self.connection_manager.start_connection(item)
-                port_name = getattr(item, "port_name", item.port_type)
-                self.view.setDragMode(QGraphicsView.NoDrag)
-                self.view.setCursor(Qt.CrossCursor)
-                self.info_label.setText(
-                    f"已选择 {item.parent_node.id} 的 {port_name} 输出端口，点击目标节点完成连接"
-                )
-                event.accept()
-                return
-
-            # 否则处理节点的选择与拖拽
+            # 优化：节点拖拽处理
             if item and isinstance(item, Node):
-                # 存储拖动开始前所有选中节点的位置
+                # 优化选择和拖拽开始
                 selected_nodes = self.get_selected_nodes()
 
                 if not item.isSelected():
                     if not (event.modifiers() & Qt.ControlModifier):
                         self.scene.clearSelection()
                     item.setSelected(True)
+                    # 重新获取选中节点
                     selected_nodes = self.get_selected_nodes()
 
-                # 记录拖动开始位置
-                self.drag_start_positions = [(node, node.pos()) for node in selected_nodes]
+                # 建立批量位置捕获
+                self.drag_start_positions = []
+                for node in selected_nodes:
+                    self.drag_start_positions.append((node, node.pos()))
 
-                # 设置拖动状态
+                # 优化拖动状态
                 self.is_dragging_nodes = True
                 self.view.setDragMode(QGraphicsView.NoDrag)
                 self.view.setCursor(Qt.ClosedHandCursor)
+
+                # 缓存预期被修改的连接 (性能优化)
+                self._connections_to_update = set()
+                for node in selected_nodes:
+                    if hasattr(self.connection_manager,
+                               'node_connection_map') and node in self.connection_manager.node_connection_map:
+                        self._connections_to_update.update(self.connection_manager.node_connection_map[node])
+
                 event.accept()
                 return
             else:
                 self.is_dragging_nodes = False
                 self.view.setDragMode(QGraphicsView.RubberBandDrag)
-                super(CustomGraphicsView, self.view).mousePressEvent(event)
-        else:
-            super(CustomGraphicsView, self.view).mousePressEvent(event)
+
+        # 默认处理
+        super(CustomGraphicsView, self.view).mousePressEvent(event)
 
     def _mouse_move_event(self, event: QMouseEvent):
-        """处理鼠标移动事件，并处理拖拽操作"""
+        """优化的鼠标移动事件处理，减少连接更新频率"""
         current_pos = event.position().toPoint()
 
-        # 如果在连接状态，更新临时连接线
+        # 如果在连接状态，优化临时连接线的更新
         if self.connection_manager.connecting_port and self.connection_manager.temp_connection:
             scene_pos = self.view.mapToScene(current_pos)
 
@@ -377,7 +429,7 @@ class EnhancedInfiniteCanvas(QWidget):
                 target_port = item
                 target_pos = target_port.mapToScene(target_port.boundingRect().center())
 
-            # 更新临时连线路径到目标位置
+            # 性能优化：使用连接管理器的优化方法
             self.connection_manager.update_temp_connection(target_pos)
 
             # 提供视觉反馈
@@ -406,6 +458,11 @@ class EnhancedInfiniteCanvas(QWidget):
                 self.view.verticalScrollBar().value() - delta.y()
             )
             self.last_mouse_pos = current_pos
+
+            # 更新网格
+            if hasattr(self, 'grid_item'):
+                self.grid_item.prepareGeometryChange()
+
             event.accept()
             return
 
@@ -414,10 +471,26 @@ class EnhancedInfiniteCanvas(QWidget):
             new_scene_pos = self.view.mapToScene(current_pos)
             delta = new_scene_pos - old_scene_pos
 
-            for node in self.get_selected_nodes():
+            # 移动所有选中的节点
+            nodes_to_update = self.get_selected_nodes()
+            for node in nodes_to_update:
                 node.moveBy(delta.x(), delta.y())
-                # 实时更新所有与该节点相关的连接
-                self.connection_manager.update_connections_for_node(node)
+
+            # 性能优化：只在拖动过程中定期更新连接，而不是每次鼠标移动都更新
+            current_time = QTime.currentTime()
+            time_since_last_update = self._last_connection_update_time.msecsTo(current_time)
+
+            # 每100毫秒更新一次连接
+            if time_since_last_update > 100:
+                # 使用批量更新方法，如果可用
+                if hasattr(self.connection_manager, 'batch_update_connections'):
+                    self.connection_manager.batch_update_connections(nodes_to_update)
+                else:
+                    # 回退到逐个更新
+                    for node in nodes_to_update:
+                        self.connection_manager.update_connections_for_node(node)
+
+                self._last_connection_update_time = current_time
 
             self.last_mouse_pos = current_pos
             event.accept()
@@ -428,7 +501,7 @@ class EnhancedInfiniteCanvas(QWidget):
             self.last_mouse_pos = current_pos
 
     def _mouse_release_event(self, event: QMouseEvent):
-        """处理鼠标释放事件"""
+        """优化的鼠标释放事件处理"""
         if self.connection_manager.connecting_port and event.button() == Qt.LeftButton:
             event.accept()
             return
@@ -454,7 +527,12 @@ class EnhancedInfiniteCanvas(QWidget):
                     node.setPos(snapped_x, snapped_y)
                     new_positions.append(QPointF(snapped_x, snapped_y))
 
-                    # 更新连接
+            # 性能优化：拖动结束时进行一次全面更新
+            if hasattr(self.connection_manager, 'batch_update_connections'):
+                self.connection_manager.batch_update_connections(nodes)
+            else:
+                # 回退到逐个更新
+                for node in nodes:
                     self.connection_manager.update_connections_for_node(node)
 
             # 如果有实际的移动，创建撤销命令
@@ -463,8 +541,10 @@ class EnhancedInfiniteCanvas(QWidget):
                     MoveNodesCommand(nodes, old_positions, new_positions, self)
                 )
 
-            # 清空拖动开始位置记录
+            # 清空拖动相关状态
             self.drag_start_positions = []
+            if hasattr(self, '_connections_to_update'):
+                delattr(self, '_connections_to_update')
 
         self.is_dragging_canvas = False
         self.is_dragging_nodes = False
@@ -472,23 +552,15 @@ class EnhancedInfiniteCanvas(QWidget):
         self.view.setDragMode(QGraphicsView.RubberBandDrag)
         super(CustomGraphicsView, self.view).mouseReleaseEvent(event)
 
+        # 更新视图
         self.view.viewport().update()
-        # 修改此处，使用与_on_selection_changed相同的处理逻辑
-        selected_nodes = [item for item in self.scene.selectedItems() if isinstance(item, Node)]
-        if selected_nodes:
-            node_count = len(selected_nodes)
-            # 设置一个阈值，超过此数量时不显示节点ID
-            threshold = 3
 
-            if node_count <= threshold:
-                # 显示全部节点ID
-                node_ids = [node.id for node in selected_nodes]
-                self.info_label.setText(f"已选择 {node_count} 个节点: {', '.join(node_ids)}")
-            else:
-                # 当节点数量较多时，只显示数量，不显示具体节点ID
-                self.info_label.setText(f"已选择 {node_count} 个节点")
-        else:
-            self.info_label.setText("拖拽与缩放: 按住右键拖拽画布，滚轮缩放，左键选择/移动节点，双击空白处取消选择")
+        # 重置连接更新计时器
+        if hasattr(self, '_last_connection_update_time'):
+            self._last_connection_update_time = QTime.currentTime()
+
+        # 更新选择状态显示
+        self._on_selection_changed()
 
     def _key_press_event(self, event: QKeyEvent):
         """处理键盘按键事件"""
@@ -573,7 +645,14 @@ class EnhancedInfiniteCanvas(QWidget):
                     new_pos = QPointF(current_pos.x() + dx, current_pos.y() + dy)
                     node.setPos(new_pos)
                     new_positions.append(new_pos)
-                    self.connection_manager.update_connections_for_node(node)
+
+                # 性能优化：批量更新连接
+                if hasattr(self.connection_manager, 'batch_update_connections'):
+                    self.connection_manager.batch_update_connections(selected_nodes)
+                else:
+                    # 回退到逐个更新
+                    for node in selected_nodes:
+                        self.connection_manager.update_connections_for_node(node)
 
                 # 创建撤销命令
                 self.command_manager.execute(
@@ -597,125 +676,70 @@ class EnhancedInfiniteCanvas(QWidget):
         self.scene.selectionChanged.connect(self._on_selection_changed)
 
     def get_state(self):
-        """获取画布的当前状态。
-
-        Returns:
-            dict: 包含当前画布状态信息的字典
-        """
+        """优化的画布状态获取方法"""
         try:
             # 捕获缩放和位置
             transform = self.view.transform()
             center = self.view.mapToScene(self.view.viewport().rect().center())
 
-            # 收集所有节点信息
+            # 构建节点映射以便更快地访问
+            node_map = {node.id: node for node in self.nodes if hasattr(node, 'id')}
+
+            # 收集所有节点信息 - 使用更直接的方法
             nodes_data = []
             for node in self.nodes:
-                try:
-                    # 获取节点属性，如果节点有get_properties方法
-                    properties = node.get_properties() if hasattr(node, 'get_properties') else {}
+                if not hasattr(node, 'id') or not hasattr(node, 'title'):
+                    continue  # 跳过无效节点
 
-                    node_data = {
-                        'id': node.id,
-                        'title': node.title,
-                        'properties': properties,
-                        'position': {'x': node.pos().x(), 'y': node.pos().y()}
-                    }
+                # 基本节点数据
+                node_data = {
+                    'id': node.id,
+                    'title': node.title,
+                    'position': {'x': node.pos().x(), 'y': node.pos().y()}
+                }
 
-                    # 如果节点有类型属性，也保存它
-                    if hasattr(node, 'node_type'):
-                        node_data['node_type'] = node.node_type
+                # 获取节点属性（如果有）
+                if hasattr(node, 'get_properties') and callable(node.get_properties):
+                    node_data['properties'] = node.get_properties()
 
-                    nodes_data.append(node_data)
-                except Exception as e:
-                    print(f"保存节点状态时出错: {str(e)}")
+                # 获取节点类型（如果有）
+                if hasattr(node, 'node_type'):
+                    node_data['node_type'] = node.node_type
 
-            # 收集所有连接信息
+                nodes_data.append(node_data)
+
+            # 收集所有连接信息 - 使用更直接的方法
             connections_data = []
-            if hasattr(self, 'connection_manager') and hasattr(self.connection_manager, 'connections'):
-                # 调试所有可能的属性
-                if self.connection_manager.connections:
-                    conn = self.connection_manager.connections[0]
-                    conn_attrs = dir(conn)
+            for conn in self.connection_manager.connections:
+                # 直接获取源端口和目标端口
+                source_port = conn.start_port if hasattr(conn, 'start_port') else None
+                target_port = conn.end_port if hasattr(conn, 'end_port') else None
 
-                for conn in self.connection_manager.connections:
-                    try:
-                        # 检查Connection类中可能存储端口的属性名称
-                        port_attrs = [attr for attr in dir(conn) if 'port' in attr.lower() or
-                                      'source' in attr.lower() or 'target' in attr.lower() or
-                                      'from' in attr.lower() or 'to' in attr.lower()]
+                # 跳过无效连接
+                if not source_port or not target_port:
+                    continue
 
+                # 获取父节点
+                source_node = getattr(source_port, 'parent_node', None)
+                target_node = getattr(target_port, 'parent_node', None)
 
-                        # 检查实际端口属性内容
-                        for attr in port_attrs:
-                            if hasattr(conn, attr) and not attr.startswith('__'):
-                                try:
-                                    value = getattr(conn, attr)
-                                except:
-                                    print(f"无法读取属性 {attr}")
+                # 跳过无效节点
+                if not source_node or not target_node or not hasattr(source_node, 'id') or not hasattr(target_node,
+                                                                                                       'id'):
+                    continue
 
-                        # 尝试获取来源和目标端口
-                        source_port = None
-                        target_port = None
+                # 构建连接数据
+                conn_data = {
+                    'source_node_id': source_node.id,
+                    'source_port_type': getattr(source_port, 'port_type', 'output'),
+                    'source_port_name': getattr(source_port, 'port_name', ''),
+                    'target_node_id': target_node.id,
+                    'target_port_type': getattr(target_port, 'port_type', 'input'),
+                    'target_port_name': getattr(target_port, 'port_name', '')
+                }
+                connections_data.append(conn_data)
 
-                        # 尝试不同的属性名组合
-                        possible_source_attrs = ['source_port', 'source', 'output_port', 'from_port', 'start_port']
-                        possible_target_attrs = ['target_port', 'target', 'input_port', 'to_port', 'end_port']
-
-                        for attr in possible_source_attrs:
-                            if hasattr(conn, attr):
-                                source_port = getattr(conn, attr)
-                                break
-
-                        for attr in possible_target_attrs:
-                            if hasattr(conn, attr):
-                                target_port = getattr(conn, attr)
-                                break
-
-                        # 尝试使用方法获取
-                        if source_port is None and hasattr(conn, 'get_source_port'):
-                            source_port = conn.get_source_port()
-                        if target_port is None and hasattr(conn, 'get_target_port'):
-                            target_port = conn.get_target_port()
-
-                        # 检查端口对象是否有效
-                        if source_port is None or target_port is None:
-                            continue
-
-                        # 尝试获取节点信息
-                        if not hasattr(source_port, 'parent_node') or not hasattr(target_port, 'parent_node'):
-                            print("端口对象缺少parent_node属性")
-                            # 尝试其他可能的方式获取父节点
-                            if hasattr(source_port, 'node'):
-                                source_node = source_port.node
-                            else:
-                                print("无法获取源端口的父节点")
-                                continue
-
-                            if hasattr(target_port, 'node'):
-                                target_node = target_port.node
-                            else:
-                                print("无法获取目标端口的父节点")
-                                continue
-                        else:
-                            source_node = source_port.parent_node
-                            target_node = target_port.parent_node
-
-                        # 收集连接数据
-                        conn_data = {
-                            'source_node_id': source_node.id,
-                            'source_port_type': getattr(source_port, 'port_type', 'output'),
-                            'source_port_name': getattr(source_port, 'port_name', ''),
-                            'target_node_id': target_node.id,
-                            'target_port_type': getattr(target_port, 'port_type', 'input'),
-                            'target_port_name': getattr(target_port, 'port_name', '')
-                        }
-                        connections_data.append(conn_data)
-
-                    except Exception as e:
-                        print(f"保存连接状态时出错: {str(e)}")
-                        import traceback
-                        print(traceback.format_exc())
-
+            # 返回状态数据
             return {
                 'transform': {
                     'scale_x': transform.m11(),
@@ -739,68 +763,85 @@ class EnhancedInfiniteCanvas(QWidget):
             }
 
     def restore_state(self, state):
-        """从保存的状态恢复画布。
-
-        Args:
-            state (dict): 包含要恢复的状态信息的字典
-        """
+        """优化的画布状态恢复方法"""
         # 首先清除当前内容
         self.clear()
+
+        # 从状态数据创建节点工厂函数
+        def create_node_from_data(node_data):
+            try:
+                # 创建基本节点
+                node = Node(
+                    id=node_data['id'],
+                    title=node_data['title']
+                )
+
+                # 设置节点位置
+                if 'position' in node_data:
+                    pos = node_data['position']
+                    node.setPos(pos['x'], pos['y'])
+
+                # 设置节点类型（如果有）
+                if 'node_type' in node_data and hasattr(node, 'node_type'):
+                    node.node_type = node_data['node_type']
+
+                # 设置节点属性（如果有）
+                if 'properties' in node_data and hasattr(node, 'set_properties'):
+                    node.set_properties(node_data['properties'])
+
+                return node
+            except Exception as e:
+                print(f"无法创建节点 {node_data.get('id', 'unknown')}: {str(e)}")
+                return None
 
         # 创建所有节点
         node_map = {}  # 映射节点ID到实例
 
+        # 批量创建节点
         for node_data in state.get('nodes', []):
-            # 创建节点 - 这里需要根据实际的Node类实现进行调整
-            node = Node(
-                id=node_data['id'],
-                title=node_data['title']
-            )
+            node = create_node_from_data(node_data)
+            if node:
+                self.add_node(node)
+                node_map[node_data['id']] = node
 
-            # 设置节点属性
-            # if 'properties' in node_data:
-            #     node.set_properties(node_data['properties'])
+        # 延迟创建连接，以确保所有节点都已经创建
+        def create_connections():
+            # 批量创建连接
+            for conn_data in state.get('connections', []):
+                source_node_id = conn_data.get('source_node_id')
+                target_node_id = conn_data.get('target_node_id')
 
-            # 设置节点位置
-            if 'position' in node_data:
-                pos = node_data['position']
-                node.setPos(pos['x'], pos['y'])
+                if source_node_id in node_map and target_node_id in node_map:
+                    source_node = node_map[source_node_id]
+                    target_node = node_map[target_node_id]
 
-            # 添加到画布
-            self.add_node(node)
+                    # 获取端口
+                    source_port = None
+                    source_port_name = conn_data.get('source_port_name', '')
 
-            # 存储到映射中
-            node_map[node_data['id']] = node
+                    if source_port_name and hasattr(source_node, 'get_output_port'):
+                        source_port = source_node.get_output_port(source_port_name)
+                    elif hasattr(source_node, 'get_output_ports'):
+                        # 获取默认输出端口
+                        output_ports = source_node.get_output_ports()
+                        if isinstance(output_ports, dict) and output_ports:
+                            source_port = next(iter(output_ports.values()))
+                        elif isinstance(output_ports, list) and output_ports:
+                            source_port = output_ports[0]
 
-        # 创建所有连接
-        for conn_data in state.get('connections', []):
-            source_node_id = conn_data['source_node_id']
-            target_node_id = conn_data['target_node_id']
+                    target_port = None
+                    target_port_name = conn_data.get('target_port_name', '')
 
-            if source_node_id in node_map and target_node_id in node_map:
-                source_node = node_map[source_node_id]
-                target_node = node_map[target_node_id]
+                    if target_port_name and hasattr(target_node, 'get_input_port'):
+                        target_port = target_node.get_input_port(target_port_name)
+                    elif hasattr(target_node, 'get_input_port'):
+                        target_port = target_node.get_input_port()
 
-                # 获取端口
-                source_port = None
-                if conn_data['source_port_name']:
-                    source_port = source_node.get_output_port(conn_data['source_port_name'])
-                else:
-                    # 如果没有指定端口名称，获取默认输出端口
-                    source_port = source_node.get_output_port()
-
-                target_port = None
-                if conn_data['target_port_name']:
-                    target_port = target_node.get_input_port(conn_data['target_port_name'])
-                else:
-                    # 获取默认输入端口
-                    target_port = target_node.get_input_port()
-
-                # 创建连接
-                if source_port and target_port:
-                    self.command_manager.execute(
-                        ConnectNodesCommand(source_port, target_port, self)
-                    )
+                    # 创建连接
+                    if source_port and target_port:
+                        self.command_manager.execute(
+                            ConnectNodesCommand(source_port, target_port, self)
+                        )
 
         # 恢复变换（缩放和位置）
         if 'transform' in state:
@@ -813,13 +854,29 @@ class EnhancedInfiniteCanvas(QWidget):
             center = state['center']
             self.view.centerOn(center['x'], center['y'])
 
-# 自定义视图类，用于自定义橡皮筋选择框
+        # 批量创建连接
+        create_connections()
+
+        # 更新网格
+        if hasattr(self, 'grid_item'):
+            self.grid_item.prepareGeometryChange()
+
+
+# 自定义视图类，用于自定义橡皮筋选择框和实现视图优化
 class CustomGraphicsView(QGraphicsView):
     def __init__(self, scene, parent=None):
         super().__init__(scene, parent)
         self.canvas = None  # 会被EnhancedInfiniteCanvas设置
         self.rubberBandColor = QColor(100, 100, 100, 100)  # 半透明灰色
         self.rubberBandBorderColor = QColor(60, 60, 60, 150)  # 稍深的灰色边框
+
+        # 设置渲染提示
+        self.setOptimizationFlags(QGraphicsView.DontAdjustForAntialiasing |
+                                  QGraphicsView.DontSavePainterState)
+        self.setViewportUpdateMode(QGraphicsView.SmartViewportUpdate)
+
+        # 设置缓存模式
+        self.setCacheMode(QGraphicsView.CacheBackground)
 
     # 重写绘制橡皮筋选择框的方法
     def drawRubberBand(self, painter, rect):
@@ -831,6 +888,28 @@ class CustomGraphicsView(QGraphicsView):
         painter.setBrush(brush)
         painter.drawRect(rect)
         painter.restore()
+
+    # 优化：只绘制可见区域内的项目
+    def paintEvent(self, event):
+        """优化场景绘制，只渲染可见项目"""
+        # 获取可见场景矩形
+        visible_rect = self.mapToScene(self.viewport().rect()).boundingRect()
+
+        # 稍微扩大一点以包含部分可见的项目
+        margin = 100
+        culling_rect = visible_rect.adjusted(-margin, -margin, margin, margin)
+
+        # 存储原始场景矩形
+        original_rect = self.scene().sceneRect()
+
+        # 临时设置场景矩形为可见区域，以提高渲染效率
+        self.scene().setSceneRect(culling_rect)
+
+        # 绘制场景
+        super().paintEvent(event)
+
+        # 恢复原始场景矩形
+        self.scene().setSceneRect(original_rect)
 
 
 # 此处需要导入Node类，确保代码能够正确运行
