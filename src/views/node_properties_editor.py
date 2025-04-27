@@ -144,7 +144,6 @@ class NodePropertiesEditor(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-
         # 识别算法和动作类型选项
         self.recognition_types = [
             "DirectHit", "TemplateMatch", "FeatureMatch", "ColorMatch",
@@ -385,10 +384,6 @@ class NodePropertiesEditor(QWidget):
 
         # 添加通用ROI控件(对于非DirectHit和非Custom类型)
         if recognition_type != "Custom":
-            roi_type_combo = QComboBox()
-            roi_type_combo.addItems(["全屏", "其他节点", "固定坐标"])
-            widgets["识别区域类型:"] = roi_type_combo
-
             roi_edit = QLineEdit()
             roi_edit.setPlaceholderText("节点名或坐标 [x,y,w,h]")
             widgets["识别区域:"] = roi_edit
@@ -750,12 +745,6 @@ class NodePropertiesEditor(QWidget):
 
     def set_node(self, node=None):
         """设置要编辑的节点，如果为None则创建一个默认节点"""
-        # 添加防递归标志
-        if hasattr(self, '_setting_node') and self._setting_node:
-            return
-
-        self._setting_node = True
-
         try:
             if node is None:
                 # 创建一个默认节点
@@ -850,18 +839,6 @@ class NodePropertiesEditor(QWidget):
         rec_type = self.current_node.recognition
         widgets = self.recognition_property_widgets.get(rec_type, {})
 
-        # 处理通用ROI控件
-        if "识别区域类型:" in widgets:
-            roi_type_combo = widgets["识别区域类型:"]
-            roi = getattr(self.current_node, "roi", [0, 0, 0, 0])
-            if isinstance(roi, list) and len(roi) == 4:
-                if roi == [0, 0, 0, 0]:
-                    roi_type_combo.setCurrentText("全屏")
-                else:
-                    roi_type_combo.setCurrentText("固定坐标")
-            elif isinstance(roi, str):
-                roi_type_combo.setCurrentText("其他节点")
-
         if "识别区域:" in widgets:
             roi_edit = widgets["识别区域:"]
             roi = getattr(self.current_node, "roi", [0, 0, 0, 0])
@@ -888,87 +865,8 @@ class NodePropertiesEditor(QWidget):
 
         # 处理算法特有属性
         for widget_label, widget in widgets.items():
-            if widget_label in ["识别区域类型:", "识别区域:", "区域偏移:", "结果排序:", "结果索引:", ""]:
+            if widget_label in ["识别区域:", "区域偏移:", "结果排序:", "结果索引:", ""]:
                 continue  # 这些已经处理过了
-
-            # 处理特殊属性
-            if widget_label == "模板图片:":
-                template = getattr(self.current_node, "template", "")
-                if isinstance(template, list):
-                    widget.setText(str(template))
-                elif isinstance(template, str):
-                    widget.setText(template)
-
-            elif widget_label == "匹配阈值:" or widget_label == "置信度阈值:":
-                threshold = getattr(self.current_node, "threshold", 0.7 if rec_type == "TemplateMatch" else 0.3)
-                widget.setValue(threshold)
-
-            elif widget_label == "匹配算法:" or widget_label == "颜色空间:":
-                method = getattr(self.current_node, "method", 5 if rec_type == "TemplateMatch" else 4)
-                widget.setValue(method)
-
-            elif widget_label == "绿色掩码:":
-                green_mask = getattr(self.current_node, "green_mask", False)
-                widget.setChecked(green_mask)
-
-            elif widget_label == "特征点数量:" or widget_label == "点数阈值:":
-                count = getattr(self.current_node, "count", 4 if rec_type == "FeatureMatch" else 1)
-                widget.setValue(count)
-
-            elif widget_label == "特征检测器:":
-                detector = getattr(self.current_node, "detector", "SIFT")
-                widget.setCurrentText(detector)
-
-            elif widget_label == "距离比值:":
-                ratio = getattr(self.current_node, "ratio", 0.6)
-                widget.setValue(ratio)
-
-            elif widget_label == "颜色下限:":
-                lower = getattr(self.current_node, "lower", "")
-                if isinstance(lower, list):
-                    widget.setText(json.dumps(lower))
-
-            elif widget_label == "颜色上限:":
-                upper = getattr(self.current_node, "upper", "")
-                if isinstance(upper, list):
-                    widget.setText(json.dumps(upper))
-
-            elif widget_label == "要求相连:":
-                connected = getattr(self.current_node, "connected", False)
-                widget.setChecked(connected)
-
-            elif widget_label == "期望文本:":
-                expected = getattr(self.current_node, "expected", "")
-                if isinstance(expected, list):
-                    widget.setText(json.dumps(expected))
-                elif expected is not None:
-                    widget.setText(str(expected))
-
-            elif widget_label == "文本替换:":
-                replace = getattr(self.current_node, "replace", [])
-                if isinstance(replace, list):
-                    widget.setText(json.dumps(replace))
-
-            elif widget_label == "仅识别:":
-                only_rec = getattr(self.current_node, "only_rec", False)
-                widget.setChecked(only_rec)
-
-            elif widget_label == "模型路径:":
-                model = getattr(self.current_node, "model", "")
-                widget.setText(model)
-
-            elif widget_label == "标签列表:":
-                labels = getattr(self.current_node, "labels", [])
-                if isinstance(labels, list):
-                    widget.setText(json.dumps(labels))
-
-            elif widget_label == "自定义识别名:":
-                custom_recognition = getattr(self.current_node, "custom_recognition", "")
-                widget.setText(custom_recognition)
-
-            elif widget_label == "自定义参数:":
-                custom_param = getattr(self.current_node, "custom_recognition_param", {})
-                widget.setText(json.dumps(custom_param, indent=2))
 
     def update_action_properties(self):
         """更新动作特有属性控件"""
@@ -1139,18 +1037,16 @@ class NodePropertiesEditor(QWidget):
         rec_type = self.current_node.recognition
         widgets = self.recognition_property_widgets.get(rec_type, {})
 
-        # 处理通用ROI相关属性
-        if "识别区域类型:" in widgets and "识别区域:" in widgets:
-            roi_type = widgets["识别区域类型:"].currentText()
+        # 处理ROI相关属性，不再使用"识别区域类型"
+        if "识别区域:" in widgets:
             roi_edit = widgets["识别区域:"]
+            roi_text = roi_edit.text()
 
-            if roi_type == "全屏":
-                self.current_node.roi = [0, 0, 0, 0]
-            elif roi_type == "其他节点":
-                self.current_node.roi = roi_edit.text()
-            elif roi_type == "固定坐标":
+            # 判断是节点名称还是坐标
+            if roi_text.startswith("[") and roi_text.endswith("]"):
                 try:
-                    roi_str = roi_edit.text().strip("[]").split(",")
+                    # 尝试解析为坐标
+                    roi_str = roi_text.strip("[]").split(",")
                     roi = [int(x.strip()) for x in roi_str]
                     if len(roi) == 4:
                         self.current_node.roi = roi
@@ -1158,6 +1054,12 @@ class NodePropertiesEditor(QWidget):
                         QMessageBox.warning(self, "输入错误", "ROI坐标格式不正确，应为[x,y,w,h]")
                 except Exception as e:
                     QMessageBox.warning(self, "输入错误", f"ROI坐标格式不正确: {str(e)}")
+            elif roi_text == "":
+                # 空值默认为全屏
+                self.current_node.roi = [0, 0, 0, 0]
+            else:
+                # 否则为节点名称
+                self.current_node.roi = roi_text
 
         # 处理区域偏移
         if "区域偏移:" in widgets:
@@ -1182,9 +1084,8 @@ class NodePropertiesEditor(QWidget):
 
         # 处理特定算法属性
         for widget_label, widget in widgets.items():
-            if widget_label in ["识别区域类型:", "识别区域:", "区域偏移:", "结果排序:", "结果索引:", ""]:
+            if widget_label in ["识别区域:", "区域偏移:", "结果排序:", "结果索引:", ""]:
                 continue  # 这些已经处理过了
-
             # 针对不同算法的特殊处理
             if widget_label == "模板图片:":
                 text = widget.text()
@@ -1277,6 +1178,156 @@ class NodePropertiesEditor(QWidget):
                     if widget.toPlainText():
                         param = json.loads(widget.toPlainText())
                         self.current_node.custom_recognition_param = param
+                except:
+                    QMessageBox.warning(self, "输入错误", "自定义参数格式不正确，应为JSON格式")
+
+    def apply_action_properties(self):
+        """应用动作特有属性到节点"""
+        if not self.current_node:
+            return
+
+        action_type = self.current_node.action
+        widgets = self.action_property_widgets.get(action_type, {})
+
+        # 处理点击目标相关属性
+        if "点击目标类型:" in widgets and "点击目标:" in widgets:
+            target_type = widgets["点击目标类型:"].currentText()
+            target_edit = widgets["点击目标:"]
+
+            if target_type == "自身":
+                self.current_node.target = True
+            elif target_type == "其他节点":
+                self.current_node.target = target_edit.text()
+            elif target_type == "固定坐标":
+                try:
+                    target_str = target_edit.text().strip("[]").split(",")
+                    target = [int(x.strip()) for x in target_str]
+                    if len(target) == 4:
+                        self.current_node.target = target
+                    else:
+                        QMessageBox.warning(self, "输入错误", "目标坐标格式不正确，应为[x,y,w,h]")
+                except Exception as e:
+                    QMessageBox.warning(self, "输入错误", f"目标坐标格式不正确: {str(e)}")
+
+        # 处理目标偏移
+        if "目标偏移:" in widgets:
+            try:
+                offset_edit = widgets["目标偏移:"]
+                if offset_edit.text():
+                    offset_str = offset_edit.text().strip("[]").split(",")
+                    offset = [int(x.strip()) for x in offset_str]
+                    if len(offset) == 4:
+                        self.current_node.target_offset = offset
+                    else:
+                        QMessageBox.warning(self, "输入错误", "目标偏移坐标格式不正确，应为[x,y,w,h]")
+            except Exception as e:
+                QMessageBox.warning(self, "输入错误", f"目标偏移坐标格式不正确: {str(e)}")
+
+        # 处理滑动起点和终点相关属性
+        for point_type, attr_name in [("起点", "begin"), ("终点", "end")]:
+            type_key = f"{point_type}类型:"
+            point_key = f"{point_type}:"
+            offset_key = f"{point_type}偏移:"
+
+            if type_key in widgets and point_key in widgets:
+                point_type_combo = widgets[type_key]
+                point_edit = widgets[point_key]
+                point_type_value = point_type_combo.currentText()
+
+                if point_type_value == "自身":
+                    setattr(self.current_node, attr_name, True)
+                elif point_type_value == "其他节点":
+                    setattr(self.current_node, attr_name, point_edit.text())
+                elif point_type_value == "固定坐标":
+                    try:
+                        point_str = point_edit.text().strip("[]").split(",")
+                        point = [int(x.strip()) for x in point_str]
+                        if len(point) == 4:
+                            setattr(self.current_node, attr_name, point)
+                        else:
+                            QMessageBox.warning(self, "输入错误", f"{point_type}坐标格式不正确，应为[x,y,w,h]")
+                    except Exception as e:
+                        QMessageBox.warning(self, "输入错误", f"{point_type}坐标格式不正确: {str(e)}")
+
+            # 处理偏移
+            if offset_key in widgets:
+                try:
+                    offset_edit = widgets[offset_key]
+                    if offset_edit.text():
+                        offset_str = offset_edit.text().strip("[]").split(",")
+                        offset = [int(x.strip()) for x in offset_str]
+                        if len(offset) == 4:
+                            setattr(self.current_node, f"{attr_name}_offset", offset)
+                        else:
+                            QMessageBox.warning(self, "输入错误", f"{point_type}偏移坐标格式不正确，应为[x,y,w,h]")
+                except Exception as e:
+                    QMessageBox.warning(self, "输入错误", f"{point_type}偏移坐标格式不正确: {str(e)}")
+
+        # 处理其他特有属性
+        for widget_label, widget in widgets.items():
+            # 跳过已处理的属性
+            if (widget_label.startswith("点击目标") or
+                    widget_label.startswith("起点") or
+                    widget_label.startswith("终点") or
+                    widget_label.startswith("目标") or
+                    widget_label == ""):
+                continue
+
+            # 针对不同动作类型的特殊处理
+            if widget_label == "持续时间(ms):":
+                self.current_node.duration = widget.value()
+
+            elif widget_label == "滑动配置:":
+                try:
+                    if widget.toPlainText():
+                        swipes = json.loads(widget.toPlainText())
+                        self.current_node.swipes = swipes
+                except:
+                    QMessageBox.warning(self, "输入错误", "滑动配置格式不正确，应为JSON格式")
+
+            elif widget_label == "按键码:":
+                try:
+                    key_text = widget.text()
+                    if key_text.startswith("[") and key_text.endswith("]"):
+                        # 尝试解析为数组
+                        key_value = json.loads(key_text)
+                        self.current_node.key = key_value
+                    elif key_text:
+                        # 解析为数字
+                        self.current_node.key = int(key_text)
+                    else:
+                        self.current_node.key = None
+                except:
+                    QMessageBox.warning(self, "输入错误", "按键码格式不正确，应为数字或数组")
+
+            elif widget_label == "输入文本:":
+                self.current_node.input_text = widget.text()
+
+            elif widget_label == "应用包名:":
+                self.current_node.package = widget.text()
+
+            elif widget_label == "执行程序:":
+                self.current_node.exec = widget.text()
+
+            elif widget_label == "执行参数:":
+                try:
+                    if widget.toPlainText():
+                        args = json.loads(widget.toPlainText())
+                        self.current_node.args = args
+                except:
+                    QMessageBox.warning(self, "输入错误", "执行参数格式不正确，应为JSON格式")
+
+            elif widget_label == "分离进程:":
+                self.current_node.detach = widget.isChecked()
+
+            elif widget_label == "自定义动作名:":
+                self.current_node.custom_action = widget.text()
+
+            elif widget_label == "自定义参数:":
+                try:
+                    if widget.toPlainText():
+                        param = json.loads(widget.toPlainText())
+                        self.current_node.custom_action_param = param
                 except:
                     QMessageBox.warning(self, "输入错误", "自定义参数格式不正确，应为JSON格式")
 

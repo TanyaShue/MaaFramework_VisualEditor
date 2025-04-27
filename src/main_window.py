@@ -27,7 +27,6 @@ class MainWindow(QMainWindow):
 
         # 创建配置管理器
         self.config_manager = config_manager
-        print(self.config_manager.config["recent_files"]["resource_dir"])
         # 创建核心组件 - 使用增强的画布
         self.canvas = EnhancedInfiniteCanvas()
         self.controller_view = ControllerView()
@@ -378,20 +377,18 @@ class MainWindow(QMainWindow):
             dock.visibilityChanged.connect(lambda visible, d=dock: self.update_dock_status(d, visible))
 
         # 连接节点属性编辑器的信号
-        # 假设 property_editor 有一个信号，当节点属性改变时发出
         if hasattr(self.property_editor, 'properties_changed'):
             self.property_editor.properties_changed.connect(self.on_properties_changed)
-
         # 连接节点选择变化信号到属性编辑器
-        self.canvas.scene.selectionChanged.connect(self.update_property_editor)
+        # self.canvas.scene.selectionChanged.connect(self.update_property_editor)
+        self.canvas.node_manager.OpenNodeChanged.connect(self.update_property_editor)
 
 
-
-    @Slot()
     def update_property_editor(self):
         """当节点选择改变时更新属性编辑器"""
         # selected_nodes = self.canvas.get_selected_nodes()
         open_nodes=self.canvas.get_open_nodes()
+
         if len(open_nodes) == 1:
             # 单个节点选择时，显示其属性
             node = open_nodes[0]

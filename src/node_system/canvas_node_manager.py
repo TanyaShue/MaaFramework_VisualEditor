@@ -1,49 +1,36 @@
 from PySide6.QtGui import QColor, Qt, QPen
-
-from src.node_system.node import Node
-
-from PySide6.QtGui import QColor, Qt, QPen
-from PySide6.QtCore import QPointF
+from PySide6.QtCore import QPointF, Signal
 
 from src.node_system.node import Node
 
 
-class CanvasNodeManager:
+from PySide6.QtCore import QObject, Signal
+
+class CanvasNodeManager(QObject):
     """
     节点操作的统一管理器。
-
-    管理内容:
-    - 节点选择和可视化状态
-    - 从文件加载节点
-    - 与画布同步
-    - 委托ConnectionManager管理连接
     """
+    OpenNodeChanged = Signal(list)
 
     def __init__(self, canvas, scene):
-        """
-        初始化CanvasNodeManager。
+        super().__init__()  # 别忘了加 super().__init__()
 
-        参数:
-            canvas: EnhancedInfiniteCanvas实例
-            scene: 显示节点的QGraphicsScene
-        """
         self.canvas = canvas
         self.scene = scene
         self.connection_manager = canvas.connection_manager
         self.command_manager = canvas.command_manager
 
         # 节点集合
-        self.nodes = []  # 所有节点
-        self.selected_nodes = []  # 选中的节点(黄色边框)
-        self.open_nodes = []  # 打开的节点(蓝色边框)
+        self.nodes = []
+        self.selected_nodes = []
+        self.open_nodes = []
 
-        # 当前文件
         self.current_file = None
 
-        # 节点外观常量
-        self.SELECTED_COLOR = QColor(255, 255, 0)  # 黄色
-        self.OPEN_COLOR = QColor(0, 200, 0)  # 绿色
-        self.DEFAULT_COLOR = QColor(100, 100, 100)  # 灰色
+        self.SELECTED_COLOR = QColor(255, 255, 0)
+        self.OPEN_COLOR = QColor(0, 200, 0)
+        self.DEFAULT_COLOR = QColor(100, 100, 100)
+
 
     def load_file(self, file_path):
         """
@@ -222,6 +209,7 @@ class CanvasNodeManager:
         if open_state:
             if node not in self.open_nodes:
                 self.open_nodes.append(node)
+                self.OpenNodeChanged.emit([node])
         else:
             if node in self.open_nodes:
                 self.open_nodes.remove(node)
