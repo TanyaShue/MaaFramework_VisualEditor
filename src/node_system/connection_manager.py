@@ -6,22 +6,52 @@ from src.node_system.connection import Connection, build_connection_path
 
 
 class ConnectionManager:
+    """
+    连接管理器，负责管理节点间的所有连接操作
+
+    功能:
+    - 创建和移除连接
+    - 跟踪临时连接（连线过程中）
+    - 存储所有活动连接
+    - 序列化和反序列化连接状态
+    """
+
     def __init__(self, scene, canvas):
+        """
+        初始化连接管理器
+
+        参数:
+            scene: 图形场景
+            canvas: 画布引用
+        """
         self.scene = scene
         self.canvas = canvas
-        self.temp_connection = None
-        self.connecting_port = None
-        self.connections = []
+        self.temp_connection = None  # 临时连接线（绘制中）
+        self.connecting_port = None  # 当前正在连接的输出端口
+        self.connections = []  # 所有活动连接
 
     def start_connection(self, output_port):
-        """开始从输出端口创建一条连线"""
+        """
+        开始从输出端口创建一条连线
+
+        参数:
+            output_port: 连接的源端口
+
+        返回:
+            创建的临时连接对象
+        """
         self.connecting_port = output_port
         start_pos = output_port.mapToScene(output_port.boundingRect().center())
         self.temp_connection = self.create_temp_connection(start_pos, start_pos)
         return self.temp_connection
 
     def update_temp_connection(self, target_pos):
-        """更新临时连线的路径"""
+        """
+        更新临时连线的路径
+
+        参数:
+            target_pos: 当前目标位置（场景坐标）
+        """
         if not self.temp_connection or not self.connecting_port:
             return
 
@@ -30,7 +60,15 @@ class ConnectionManager:
         self.temp_connection.setPath(path)
 
     def finish_connection(self, target_port):
-        """完成连线操作，创建实际的 Connection 对象"""
+        """
+        完成连线操作，创建实际的 Connection 对象
+
+        参数:
+            target_port: 连接的目标端口
+
+        返回:
+            创建的连接对象，如果无法连接则返回None
+        """
         if not self.connecting_port or not target_port:
             return None
 
@@ -50,7 +88,16 @@ class ConnectionManager:
         self.connecting_port = None
 
     def create_temp_connection(self, start_pos, end_pos):
-        """创建临时连线路径，供视觉反馈使用"""
+        """
+        创建临时连线路径，供视觉反馈使用
+
+        参数:
+            start_pos: 起始位置
+            end_pos: 结束位置
+
+        返回:
+            临时连接对象
+        """
         if not self.connecting_port:
             return None
 
@@ -81,7 +128,16 @@ class ConnectionManager:
         return temp_connection
 
     def can_connect(self, source_port, target_port):
-        """检查两个端口是否可以连接（例如，不能连接同一节点，且端口类型必须兼容）"""
+        """
+        检查两个端口是否可以连接
+
+        参数:
+            source_port: 源端口
+            target_port: 目标端口
+
+        返回:
+            bool: 是否可以连接
+        """
         if not source_port or not target_port:
             return False
 
@@ -94,7 +150,12 @@ class ConnectionManager:
         return True
 
     def remove_connection(self, connection):
-        """移除指定的连线"""
+        """
+        移除指定的连线
+
+        参数:
+            connection: 要移除的连接对象
+        """
         if not connection:
             return
 
@@ -111,7 +172,12 @@ class ConnectionManager:
             self.connections.remove(connection)
 
     def update_connections_for_node(self, node):
-        """更新与指定节点有关的所有连线"""
+        """
+        更新与指定节点有关的所有连线
+
+        参数:
+            node: 要更新连接的节点
+        """
         input_port = node.get_input_port()
         if input_port and hasattr(input_port, 'connections'):
             for connection in input_port.connections:
@@ -127,3 +193,118 @@ class ConnectionManager:
                 for connection in output_port.connections:
                     if connection:
                         connection.update_path()
+
+    def clear_all_connections(self):
+        """清除所有连接"""
+        for connection in self.connections[:]:  # 使用副本遍历，避免在移除过程中修改列表
+            self.remove_connection(connection)
+
+    def get_connections_state(self):
+        """
+        获取所有连接的序列化状态
+
+        返回:
+            list: 包含所有连接状态信息的列表
+        """
+        connections_data = []
+
+        for conn in self.connections:
+            try:
+                # 获取连接的源端口和目标端口
+                source_port = conn.get_source()
+                target_port = conn.get_target()
+
+                if not source_port or not target_port:
+                    continue
+
+                # 获取对应的节点
+                source_node = source_port.parent_node
+                target_node = target_port.parent_node
+
+                # 构建连接数据
+                conn_data = {
+                    'source_node_id': source_node.id,
+                    'source_port_type': getattr(source_port, 'port_type', 'output'),
+                    'source_port_name': getattr(source_port, 'port_name', ''),
+                    'target_node_id': target_node.id,
+                    'target_port_type': getattr(target_port, 'port_type', 'input'),
+                    'target_port_name': getattr(target_port, 'port_name', '')
+                }
+                connections_data.append(conn_data)
+            except Exception as e:
+                print(f"保存连接状态时出错: {str(e)}")
+                import traceback
+                print(traceback.format_exc())
+
+        return connections_data
+
+    def restore_connections_state(self, connections_data, node_map):
+        """
+        从序列化状态恢复连接
+
+        参数:
+            connections_data: 连接数据列表
+            node_map: 节点ID到节点实例的映射
+        """
+        from src.canvas_commands import ConnectNodesCommand
+
+        for conn_data in connections_data:
+            try:
+                source_node_id = conn_data['source_node_id']
+                target_node_id = conn_data['target_node_id']
+
+                if source_node_id in node_map and target_node_id in node_map:
+                    source_node = node_map[source_node_id]
+                    target_node = node_map[target_node_id]
+
+                    # 获取源端口
+                    source_port = None
+                    if 'source_port_name' in conn_data and conn_data['source_port_name']:
+                        # 如果有端口名称，按名称获取
+                        output_ports = source_node.get_output_ports()
+                        if isinstance(output_ports, dict):
+                            source_port = output_ports.get(conn_data['source_port_name'])
+                        else:
+                            # 遍历所有输出端口查找匹配的
+                            for port in output_ports:
+                                if getattr(port, 'port_name', '') == conn_data['source_port_name']:
+                                    source_port = port
+                                    break
+                    else:
+                        # 没有端口名称，获取默认端口
+                        output_ports = source_node.get_output_ports()
+                        if isinstance(output_ports, dict) and output_ports:
+                            source_port = next(iter(output_ports.values()))
+                        elif isinstance(output_ports, list) and output_ports:
+                            source_port = output_ports[0]
+
+                    # 获取目标端口
+                    target_port = None
+                    if 'target_port_name' in conn_data and conn_data['target_port_name']:
+                        # 如果有多输入端口，按名称获取
+                        if hasattr(target_node, 'get_input_ports'):
+                            input_ports = target_node.get_input_ports()
+                            if isinstance(input_ports, dict):
+                                target_port = input_ports.get(conn_data['target_port_name'])
+                            else:
+                                # 遍历所有输入端口查找匹配的
+                                for port in input_ports:
+                                    if getattr(port, 'port_name', '') == conn_data['target_port_name']:
+                                        target_port = port
+                                        break
+                        else:
+                            # 单输入端口
+                            target_port = target_node.get_input_port()
+                    else:
+                        # 没有端口名称，获取默认端口
+                        target_port = target_node.get_input_port()
+
+                    # 创建连接
+                    if source_port and target_port and self.can_connect(source_port, target_port):
+                        self.canvas.command_manager.execute(
+                            ConnectNodesCommand(source_port, target_port, self.canvas)
+                        )
+            except Exception as e:
+                print(f"恢复连接状态时出错: {str(e)}")
+                import traceback
+                print(traceback.format_exc())

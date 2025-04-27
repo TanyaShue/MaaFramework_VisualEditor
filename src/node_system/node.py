@@ -1,8 +1,11 @@
+import os
+
 from PySide6.QtCore import QRectF, Qt, QPointF, Signal, QObject
 from PySide6.QtGui import QPainter, QFont, QColor, QPen, QBrush, QPainterPath, QPixmap
 from PySide6.QtWidgets import QGraphicsItem
 import hashlib  # 用于MD5哈希计算
 
+from src.config_manager import config_manager
 from src.node_system.port import InputPort, OutputPort
 
 
@@ -14,8 +17,20 @@ class NodeSignals(QObject):
 class Node(QGraphicsItem):
     def __init__(self, id=None, title="", task_node=None, parent=None, default_image_path="default_image.png"):
         super().__init__(parent)
-        self.task_node = task_node  # 优先初始化task_node，因为ID计算需要它
+        self.task_node = task_node
 
+        # Store config_manager
+        self.config_manager = config_manager
+
+        # Calculate image directory path from resource directory
+        self.image_dir = None
+        if self.config_manager:
+            resource_dir = self.config_manager.config.get("recent_files", {}).get("resource_dir", "")
+            if resource_dir:
+                # Get the parent directory by removing the last component
+                base_dir = os.path.dirname(resource_dir)
+                # Append "image" directory (not "images")
+                self.image_dir = os.path.join(base_dir, "image")
         # 根据task_node.name计算MD5作为ID - 不再使用传入的id参数，总是计算一个新的
         if self.task_node and hasattr(self.task_node, 'name'):
             self.id = hashlib.md5(self.task_node.name.encode()).hexdigest()[:6].upper()
@@ -56,9 +71,14 @@ class Node(QGraphicsItem):
 
     def _load_images(self):
         """Load the default image and check for template attribute"""
+        # Construct full path for default image
+        default_image_path = self.default_image_path
+        if self.image_dir and not os.path.isabs(self.default_image_path):
+            default_image_path = os.path.join(self.image_dir, self.default_image_path)
+
         # Load default image
         try:
-            self.default_image = QPixmap(self.default_image_path)
+            self.default_image = QPixmap(default_image_path)
             if self.default_image.isNull():
                 # Create a simple default image if file can't be loaded
                 self.default_image = QPixmap(self.image_height, self.image_height)
@@ -82,24 +102,42 @@ class Node(QGraphicsItem):
         """Load the recognition image from the task_node"""
         image_path = None
 
-        # Try different possible ways the image path might be stored
-        if hasattr(self.task_node, 'recognition') and isinstance(self.task_node.recognition, str):
-            # If recognition itself is a path or contains path information
-            image_path = self.task_node.recognition
+        # 首先尝试从template属性获取图像路径
+        if hasattr(self.task_node, 'template'):
+            template = self.task_node.template
+            # 处理template是列表的情况，取第一个元素
+            if isinstance(template, list) and len(template) > 0:
+                image_path = template[0]
+            # 处理template是字符串的情况
+            elif isinstance(template, str):
+                image_path = template
 
-        # Check if there's an image_path in algorithm properties
-        elif hasattr(self.task_node, 'get_algorithm_property'):
-            possible_keys = ['image_path', 'imagePath', 'image', 'recognition_image']
-            for key in possible_keys:
-                path = self.task_node.get_algorithm_property(key)
-                if path:
-                    image_path = path
-                    break
+        # 如果从template没有获取到路径，按照原来的逻辑尝试其他属性
+        if not image_path:
+            # Try different possible ways the image path might be stored
+            if hasattr(self.task_node, 'recognition') and isinstance(self.task_node.recognition, str):
+                # If recognition itself is a path or contains path information
+                image_path = self.task_node.recognition
+
+            # Check if there's an image_path in algorithm properties
+            elif hasattr(self.task_node, 'get_algorithm_property'):
+                possible_keys = ['image_path', 'imagePath', 'image', 'recognition_image']
+                for key in possible_keys:
+                    path = self.task_node.get_algorithm_property(key)
+                    if path:
+                        image_path = path
+                        break
 
         # Try to load the image if a path was found
         if image_path:
+            # Check if the path is relative and needs to be combined with image_dir
+            if self.image_dir and not os.path.isabs(image_path):
+                full_image_path = os.path.join(self.image_dir, image_path)
+            else:
+                full_image_path = image_path
+
             try:
-                self.recognition_image = QPixmap(image_path)
+                self.recognition_image = QPixmap(full_image_path)
                 if self.recognition_image.isNull():
                     self.recognition_image = self.default_image
             except:

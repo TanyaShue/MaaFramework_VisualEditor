@@ -272,3 +272,5 @@ class ConfigManager:
     def get_last_project(self):
         """获取上次打开的项目文件路径。"""
         return self.config["recent_files"]["project"]
+
+config_manager=ConfigManager()

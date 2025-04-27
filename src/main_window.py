@@ -11,7 +11,7 @@ from src.views.infinite_canvas import EnhancedInfiniteCanvas
 from src.views.node_properties_editor import NodePropertiesEditor
 from src.views.node_library import NodeLibrary
 from .canvas_commands import ConnectNodesCommand
-from .config_manager import ConfigManager
+from .config_manager import ConfigManager, config_manager
 from .maafw_interface import MaafwInterface
 from .node_system.node import Node
 from .pipeline import Pipeline
@@ -26,8 +26,8 @@ class MainWindow(QMainWindow):
         self.resize(1200, 800)
 
         # 创建配置管理器
-        self.config_manager = ConfigManager()
-
+        self.config_manager = config_manager
+        print(self.config_manager.config["recent_files"]["resource_dir"])
         # 创建核心组件 - 使用增强的画布
         self.canvas = EnhancedInfiniteCanvas()
         self.controller_view = ControllerView()
