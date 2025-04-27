@@ -133,7 +133,7 @@ class ContextMenus:
 
         # 根据存在的节点类型填充
         node_types_map = {}
-        for node in self.canvas.nodes:
+        for node in self.canvas.node_manager.nodes:
             node_type = node.title.split(' ')[0]  # 简单地以空格分隔取第一部分作为类型
             if node_type not in node_types_map:
                 node_types_map[node_type] = []
@@ -177,7 +177,7 @@ class ContextMenus:
 
         if ok and new_id:
             # 检查ID是否已存在
-            existing_ids = [n.id for n in self.canvas.nodes if n != node]
+            existing_ids = [n.id for n in self.canvas.node_manager.nodes if n != node]
             if new_id in existing_ids:
                 QMessageBox.warning(
                     self.canvas,
@@ -241,7 +241,7 @@ class ContextMenus:
             suffix = 1
 
             # 检查ID是否已存在，如果存在则添加后缀
-            while any(node.id == new_id for node in self.canvas.nodes):
+            while any(node.id == new_id for node in self.canvas.node_manager.nodes):
                 new_id = f"{base_id}_{suffix}"
                 suffix += 1
 
@@ -360,7 +360,7 @@ class ContextMenus:
         suffix = 1
 
         # 检查ID是否已存在，如果存在则添加后缀
-        while any(node.id == node_id for node in self.canvas.nodes):
+        while any(node.id == node_id for node in self.canvas.node_manager.nodes):
             node_id = f"{base_id}_{suffix}"
             suffix += 1
 
@@ -387,10 +387,10 @@ class ContextMenus:
 
     def _select_all_nodes(self):
         """选择所有节点"""
-        for node in self.canvas.nodes:
+        for node in self.canvas.node_manager.nodes:
             node.setSelected(True)
 
-        self.canvas.info_label.setText(f"已选择所有节点 ({len(self.canvas.nodes)})")
+        self.canvas.info_label.setText(f"已选择所有节点 ({len(self.canvas.node_manager.nodes)})")
 
     def _select_nodes(self, nodes):
         """选择指定的节点组"""

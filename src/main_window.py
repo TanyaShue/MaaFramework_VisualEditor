@@ -385,23 +385,19 @@ class MainWindow(QMainWindow):
         # 连接节点选择变化信号到属性编辑器
         self.canvas.scene.selectionChanged.connect(self.update_property_editor)
 
-        # 连接命令管理器的变化信号以更新撤销/重做状态
-        # 这里需要根据实际的命令管理器设计进行调整
 
-        # 连接未保存标记方法到可能改变内容的操作
-        # 这需要根据实际情况连接相应的信号
 
     @Slot()
     def update_property_editor(self):
         """当节点选择改变时更新属性编辑器"""
-        selected_nodes = self.canvas.get_selected_nodes()
-
-        if len(selected_nodes) == 1:
+        # selected_nodes = self.canvas.get_selected_nodes()
+        open_nodes=self.canvas.get_open_nodes()
+        if len(open_nodes) == 1:
             # 单个节点选择时，显示其属性
-            node = selected_nodes[0]
+            node = open_nodes[0]
             # 假设属性编辑器有一个 set_node 方法
             if hasattr(self.property_editor, 'set_node'):
-                self.property_editor.set_node(node)
+                self.property_editor.set_node(node.task_node)
         else:
             # 多个或零个节点选择时，清空属性编辑器
             if hasattr(self.property_editor, 'clear'):

@@ -185,6 +185,9 @@ class EnhancedInfiniteCanvas(QWidget):
     def get_selected_nodes(self):
         """获取选中的节点，委托给节点管理器"""
         return self.node_manager.get_selected_nodes()
+    def get_open_nodes(self):
+        """获取选中的节点，委托给节点管理器"""
+        return self.node_manager.get_open_nodes()
 
     def center_on_content(self):
         """将视图居中显示所有内容"""
