@@ -1,6 +1,7 @@
 from PySide6.QtCore import QRectF, Qt, QPointF, Signal, QObject
 from PySide6.QtGui import QPainter, QFont, QColor, QPen, QBrush, QPainterPath, QPixmap
 from PySide6.QtWidgets import QGraphicsItem
+import hashlib  # 用于MD5哈希计算
 
 from src.node_system.port import InputPort, OutputPort
 
@@ -11,11 +12,18 @@ class NodeSignals(QObject):
 
 
 class Node(QGraphicsItem):
-    def __init__(self, id, title, task_node=None, parent=None, default_image_path="default_image.png"):
+    def __init__(self, id=None, title="", task_node=None, parent=None, default_image_path="default_image.png"):
         super().__init__(parent)
-        self.id = id
+        self.task_node = task_node  # 优先初始化task_node，因为ID计算需要它
+
+        # 根据task_node.name计算MD5作为ID - 不再使用传入的id参数，总是计算一个新的
+        if self.task_node and hasattr(self.task_node, 'name'):
+            self.id = hashlib.md5(self.task_node.name.encode()).hexdigest()[:6].upper()
+        else:
+            # 仅在task_node不存在或没有name属性时使用传入的id或设置为"UNKNOWN"
+            self.id = id if id else "UNKNOWN"
+
         self.title = title
-        self.task_node = task_node  # Store TaskNode object instead of properties dict
         self.bounds = QRectF(0, 0, 240, 200)  # Make slightly taller for image
         self.header_height = 30
         self.content_start = self.header_height + 10
@@ -26,6 +34,12 @@ class Node(QGraphicsItem):
         self.default_image_path = default_image_path
         self.default_image = None
         self.recognition_image = None  # Will hold the image to recognize
+        self.has_template = False  # 标记是否有template属性
+
+        # 检查是否有template属性
+        if self.task_node and hasattr(self.task_node, 'template') and self.task_node.template:
+            self.has_template = True
+
         self._load_images()  # Load images
 
         # Node can be selected and moved
@@ -41,7 +55,7 @@ class Node(QGraphicsItem):
         self.original_height = self.bounds.height()
 
     def _load_images(self):
-        """Load the default image and recognition image"""
+        """Load the default image and check for template attribute"""
         # Load default image
         try:
             self.default_image = QPixmap(self.default_image_path)
@@ -54,11 +68,15 @@ class Node(QGraphicsItem):
             self.default_image = QPixmap(self.image_height, self.image_height)
             self.default_image.fill(QColor(200, 200, 200))
 
-        # Load recognition image if task_node is provided
-        if self.task_node:
+        self.recognition_image = self.default_image
+
+        # 检查task_node是否有template属性，并且属性有值
+        if self.task_node and hasattr(self.task_node, 'template') and self.task_node.template:
+            self.has_template = True
+            # 如果有template属性，加载对应的图像
             self._load_recognition_image()
         else:
-            self.recognition_image = self.default_image
+            self.has_template = False
 
     def _load_recognition_image(self):
         """Load the recognition image from the task_node"""
@@ -86,8 +104,6 @@ class Node(QGraphicsItem):
                     self.recognition_image = self.default_image
             except:
                 self.recognition_image = self.default_image
-        else:
-            self.recognition_image = self.default_image
 
     def _initialize_ports(self):
         # Calculate width and height for positioning
@@ -132,12 +148,20 @@ class Node(QGraphicsItem):
         # Set rendering hints for smoother appearance
         painter.setRenderHint(QPainter.Antialiasing)
 
-        # Define colors
-        header_color = QColor(60, 120, 190)  # Blue header
-        body_color = QColor(240, 240, 240)  # Light gray body
-        border_color = QColor(30, 60, 90) if not self.isSelected() else QColor(255, 165,
-                                                                               0)  # Dark blue border or orange when selected
-        text_color = QColor(255, 255, 255)  # White text for header
+        # 增强的颜色方案，提高视觉效果
+        header_color = QColor(60, 120, 190)  # 蓝色标题栏
+        body_color = QColor(240, 240, 240)  # 浅灰色主体
+        border_color = QColor(30, 60, 90) if not self.isSelected() else QColor(255, 165, 0)  # 深蓝色边框或橙色（选中时）
+        text_color = QColor(255, 255, 255)  # 标题栏的白色文本
+        shadow_color = QColor(50, 50, 50, 40)  # 半透明阴影
+
+        # 添加阴影效果
+        painter.save()
+        shadow_rect = self.bounds.adjusted(4, 4, 4, 4)
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QBrush(shadow_color))
+        painter.drawRoundedRect(shadow_rect, 5, 5)
+        painter.restore()
 
         # Draw the main body
         painter.setPen(QPen(border_color, 1.5))
@@ -164,19 +188,31 @@ class Node(QGraphicsItem):
         # Draw the title
         painter.setPen(text_color)
         painter.setFont(QFont("Arial", 9, QFont.Bold))
+        title_width = self.bounds.width() - 70  # 预留ID徽章的空间
         painter.drawText(
-            QRectF(10, 0, self.bounds.width() - 20, self.header_height),
+            QRectF(10, 0, title_width, self.header_height),
             Qt.AlignVCenter | Qt.AlignLeft,
             self.title
         )
 
-        # Draw ID with smaller font
-        painter.setFont(QFont("Arial", 7))
-        painter.drawText(
-            QRectF(10, 0, self.bounds.width() - 20, self.header_height),
-            Qt.AlignVCenter | Qt.AlignRight,
-            f"ID: {self.id}"
-        )
+        # 绘制ID，采用徽章样式增强显示效果
+        id_text = f"{self.id}"  # 确保使用self.id而不是其他值
+        id_font = QFont("Monospace", 7)
+        painter.setFont(id_font)
+
+        # 计算ID文本的宽度
+        metrics = painter.fontMetrics()
+        id_width = metrics.horizontalAdvance(id_text) + 10  # 添加内边距
+
+        # 绘制ID徽章
+        id_rect = QRectF(self.bounds.width() - id_width - 5, 5, id_width, 20)
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor(30, 30, 30, 150))  # 半透明深色背景
+        painter.drawRoundedRect(id_rect, 10, 10)
+
+        # 绘制ID文本
+        painter.setPen(QColor(220, 220, 220))  # 浅灰色文本
+        painter.drawText(id_rect, Qt.AlignCenter, id_text)
 
         # If not collapsed, draw content section
         if not self.collapsed:
@@ -184,62 +220,91 @@ class Node(QGraphicsItem):
             y_pos = self.header_height
             painter.drawLine(0, y_pos, self.bounds.width(), y_pos)
 
-            # Draw the recognition image
-            if self.recognition_image and not self.recognition_image.isNull():
-                img_rect = QRectF(
-                    (self.bounds.width() - self.image_height) / 2,  # Centered horizontally
-                    self.content_start,
-                    self.image_height,
-                    self.image_height
-                )
-                painter.drawPixmap(img_rect.toRect(), self.recognition_image)
-
-            # Draw TaskNode properties below the image
-            if self.task_node:
-                y_pos = self.content_start + self.image_height + 10
-                painter.setPen(QColor(30, 30, 30))
-                painter.setFont(QFont("Arial", 8))
-
-                # Display key TaskNode properties
-                properties_to_display = []
-
-                # Add essential properties
-                if hasattr(self.task_node, 'recognition'):
-                    properties_to_display.append(("Recognition", self.task_node.recognition))
-
-                if hasattr(self.task_node, 'action'):
-                    properties_to_display.append(("Action", self.task_node.action))
-
-                if hasattr(self.task_node, 'enabled'):
-                    properties_to_display.append(("Enabled", str(self.task_node.enabled)))
-
-                # Add important algorithm properties
-                if hasattr(self.task_node, '_algorithm_properties'):
-                    for key, value in self.task_node._algorithm_properties.items():
-                        if isinstance(value, (str, int, float, bool)):
-                            properties_to_display.append((key, str(value)))
-
-                # Draw the properties
-                for key, value in properties_to_display:
-                    if y_pos + 15 > self.bounds.height():
-                        # Don't render properties that would go outside the node
-                        break
-
-                    # Draw property text
-                    property_text = f"{key}: {value}"
-                    painter.drawText(
-                        QRectF(10, y_pos, self.bounds.width() - 20, 15),
-                        Qt.AlignVCenter | Qt.AlignLeft,
-                        property_text
+            # 根据是否有template属性选择不同的显示方式
+            if self.has_template:
+                # 有template属性，显示图像
+                if self.recognition_image and not self.recognition_image.isNull():
+                    img_size = min(self.bounds.width() - 30, self.bounds.height() - self.content_start - 20)
+                    img_rect = QRectF(
+                        (self.bounds.width() - img_size) / 2,  # 水平居中
+                        self.content_start,
+                        img_size,
+                        img_size
                     )
-                    y_pos += 15
 
-        # If selected, add a highlight effect
-        if self.isSelected():
-            highlight_rect = self.bounds.adjusted(-2, -2, 2, 2)
-            painter.setPen(QPen(QColor(255, 165, 0), 2, Qt.DashLine))
-            painter.setBrush(Qt.NoBrush)
-            painter.drawRoundedRect(highlight_rect, 7, 7)
+                    # 图像周围添加一个微妙的框
+                    painter.setPen(QPen(QColor(180, 180, 180), 1))
+                    painter.setBrush(Qt.NoBrush)
+                    painter.drawRect(img_rect)
+
+                    # 绘制图像
+                    painter.drawPixmap(img_rect.toRect(), self.recognition_image)
+            else:
+                # 没有template属性，显示节点详情
+                if self.task_node:
+                    self._draw_properties(painter)
+
+    def _draw_properties(self, painter):
+        """单独的方法来绘制节点属性，仅在没有template属性时使用"""
+        y_pos = self.content_start + 15
+
+        # 修改属性显示的样式，使其更易读
+        property_title_color = QColor(60, 60, 60)
+        property_value_color = QColor(80, 80, 80)
+
+        # Display key TaskNode properties
+        properties_to_display = []
+
+        # Add essential properties
+        if hasattr(self.task_node, 'recognition'):
+            properties_to_display.append(("Recognition", self.task_node.recognition))
+
+        if hasattr(self.task_node, 'action'):
+            properties_to_display.append(("Action", self.task_node.action))
+
+        if hasattr(self.task_node, 'enabled'):
+            properties_to_display.append(("Enabled", str(self.task_node.enabled)))
+
+        # Add important algorithm properties
+        if hasattr(self.task_node, '_algorithm_properties'):
+            for key, value in self.task_node._algorithm_properties.items():
+                if isinstance(value, (str, int, float, bool)):
+                    properties_to_display.append((key, str(value)))
+
+        # Draw the properties with enhanced styling
+        for key, value in properties_to_display:
+            if y_pos + 25 > self.bounds.height():
+                # Don't render properties that would go outside the node
+                break
+
+            # 绘制属性键（粗体）
+            painter.setFont(QFont("Arial", 8, QFont.Bold))
+            painter.setPen(property_title_color)
+            property_key = f"{key}:"
+            painter.drawText(
+                QRectF(10, y_pos, self.bounds.width() - 20, 12),
+                Qt.AlignLeft,
+                property_key
+            )
+
+            # 绘制属性值（常规字体）
+            painter.setFont(QFont("Arial", 8))
+            painter.setPen(property_value_color)
+
+            # 处理长值的截断并添加省略号
+            property_value = str(value)
+            metrics = painter.fontMetrics()
+            available_width = self.bounds.width() - 25
+            if metrics.horizontalAdvance(property_value) > available_width:
+                property_value = metrics.elidedText(property_value, Qt.ElideRight, available_width)
+
+            painter.drawText(
+                QRectF(15, y_pos + 13, self.bounds.width() - 25, 12),
+                Qt.AlignLeft,
+                property_value
+            )
+
+            y_pos += 30  # 增加属性之间的间距
 
     def boundingRect(self):
         return self.bounds
@@ -298,7 +363,20 @@ class Node(QGraphicsItem):
     def set_task_node(self, task_node):
         """Set or update the TaskNode associated with this Node"""
         self.task_node = task_node
-        self._load_recognition_image()
+
+        # 强制更新ID，总是使用task_node.name的MD5哈希值前6位
+        if task_node and hasattr(task_node, 'name'):
+            self.id = hashlib.md5(task_node.name.encode()).hexdigest()[:6].upper()
+        else:
+            self.id = "UNKNOWN"  # 如果无法计算MD5，使用"UNKNOWN"作为ID
+
+        # 检查是否有template属性
+        if task_node and hasattr(task_node, 'template') and task_node.template:
+            self.has_template = True
+        else:
+            self.has_template = False
+
+        self._load_images()  # 重新加载图像
         self.resize_to_content()  # Adjust size to fit content
         self.update()  # Force redraw
 
@@ -342,11 +420,29 @@ class Node(QGraphicsItem):
         """Resize the node to fit content"""
         min_height = self.header_height + 10  # Header plus padding
 
-        # Calculate needed height for image and properties
-        property_count = len(self.task_node._algorithm_properties) + 3 if self.task_node else 0
-        properties_height = property_count * 15 + 20  # Each property row plus padding
+        # 针对有无template属性的情况进行不同的大小调整策略
+        if self.has_template:
+            # 如果有template属性，留出更多空间显示图像
+            img_size = min(self.bounds.width() - 30, 160)  # 最大图像大小
+            content_height = self.content_start + img_size + 20  # 图像加一些内边距
+        else:
+            # 如果没有template属性，则需要更多的空间来显示属性
+            property_count = 0
+            if self.task_node:
+                # 计算属性数量
+                if hasattr(self.task_node, 'recognition'):
+                    property_count += 1
+                if hasattr(self.task_node, 'action'):
+                    property_count += 1
+                if hasattr(self.task_node, 'enabled'):
+                    property_count += 1
+                if hasattr(self.task_node, '_algorithm_properties'):
+                    property_count += len([k for k, v in self.task_node._algorithm_properties.items()
+                                           if isinstance(v, (str, int, float, bool))])
 
-        content_height = self.content_start + self.image_height + properties_height
+            properties_height = property_count * 30 + 20  # 每个属性行加内边距
+            content_height = self.content_start + properties_height
+
         new_height = max(min_height, content_height)
 
         # Update bounds

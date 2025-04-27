@@ -161,7 +161,7 @@ class EnhancedInfiniteCanvas(QWidget):
         """添加节点到场景"""
         self.scene.addItem(node)
         self.nodes.append(node)
-
+        print(node.task_node)
         input_port = node.get_input_port()
         if input_port:
             input_port.setParentItem(node)
