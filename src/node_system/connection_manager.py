@@ -308,3 +308,20 @@ class ConnectionManager:
                 print(f"恢复连接状态时出错: {str(e)}")
                 import traceback
                 print(traceback.format_exc())
+
+    def find_connection(self, source_port, target_port):
+        """
+        查找两个端口之间是否已存在连接
+
+        参数:
+            source_port: 源端口
+            target_port: 目标端口
+
+        返回:
+            存在的连接对象，如果不存在则返回None
+        """
+        for connection in self.connections:
+            if (connection.get_source() == source_port and
+                    connection.get_target() == target_port):
+                return connection
+        return None

@@ -1,204 +1,15 @@
-from PySide6.QtCore import Qt, Signal, QSize, QPropertyAnimation, QEasingCurve, QTimer
+import json
+
+from PySide6.QtCore import Qt, Signal, QTimer
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QLabel, QFormLayout,
                                QLineEdit, QSpinBox, QPushButton, QCheckBox,
                                QComboBox, QTextEdit, QDoubleSpinBox, QHBoxLayout,
                                QScrollArea, QGroupBox, QFrame, QMessageBox,
-                               QToolButton, QSizePolicy, QTabWidget, QStackedWidget,
-                               QApplication, QStyle)
-from PySide6.QtGui import QFont, QColor, QPalette
-import json
+                               QTabWidget, QStackedWidget)
 
 from src.pipeline import TaskNode
-
-
-# Performance-optimized collapsible box
-class CollapsibleBox(QWidget):
-    """可折叠的属性分组组件 - 性能优化版"""
-
-    def __init__(self, title="", parent=None):
-        super().__init__(parent)
-        self.setObjectName("collapsible_box")
-
-        # Create main layout
-        self.main_layout = QVBoxLayout(self)
-        self.main_layout.setContentsMargins(0, 0, 0, 0)
-        self.main_layout.setSpacing(0)
-
-        # Create header
-        header = QWidget()
-        header.setCursor(Qt.PointingHandCursor)
-        header.setMinimumHeight(30)
-        header.setStyleSheet("background-color: #f0f0f0; border-radius: 3px;")
-
-        header_layout = QHBoxLayout(header)
-        header_layout.setContentsMargins(5, 2, 5, 2)
-
-        self.toggle_button = QToolButton()
-        self.toggle_button.setStyleSheet("QToolButton { border: none; background: transparent; }")
-        self.toggle_button.setArrowType(Qt.RightArrow)
-        self.toggle_button.setCheckable(True)
-        self.toggle_button.setChecked(False)
-
-        title_label = QLabel(title)
-        title_label.setStyleSheet("font-weight: bold;")
-
-        header_layout.addWidget(self.toggle_button)
-        header_layout.addWidget(title_label)
-        header_layout.addStretch()
-
-        # Content area
-        self.content_area = QWidget()
-        self.content_area.setVisible(False)
-        self.content_layout = QFormLayout(self.content_area)
-        self.content_layout.setContentsMargins(20, 5, 5, 5)
-        self.content_layout.setSpacing(7)
-
-        # Add to main layout
-        self.main_layout.addWidget(header)
-        self.main_layout.addWidget(self.content_area)
-
-        # Connect signals
-        header.mousePressEvent = self.header_clicked
-        self.toggle_button.clicked.connect(self.toggle_content)
-
-        # Animation setup
-        self.animation = None
-
-    def header_clicked(self, event):
-        self.toggle_button.setChecked(not self.toggle_button.isChecked())
-        self.toggle_content()
-
-    def toggle_content(self):
-        # Use QTimer to defer layout update for better performance
-        self.toggle_button.setArrowType(Qt.DownArrow if self.toggle_button.isChecked() else Qt.RightArrow)
-        QTimer.singleShot(10, lambda: self.content_area.setVisible(self.toggle_button.isChecked()))
-
-    def set_expanded(self, expanded):
-        """设置是否展开此区域"""
-        if self.toggle_button.isChecked() != expanded:
-            self.toggle_button.setChecked(expanded)
-            self.toggle_button.setArrowType(Qt.DownArrow if expanded else Qt.RightArrow)
-            self.content_area.setVisible(expanded)
-
-    def has_content(self):
-        """检查是否有内容"""
-        return self.content_layout.count() > 0
-
-    def add_row(self, label: str, widget: QWidget):
-        """添加表单行"""
-        label_widget = QLabel(label)
-        label_widget.setStyleSheet("padding-left: 5px;")
-        self.content_layout.addRow(label_widget, widget)
-
-    def clear_content(self):
-        """清除所有内容"""
-        while self.content_layout.count():
-            item = self.content_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
-
-
-class ListEditor(QWidget):
-    """列表属性编辑器组件 - 优化版"""
-
-    value_changed = Signal(list)
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-
-        self.layout = QVBoxLayout(self)
-        self.layout.setContentsMargins(0, 0, 0, 0)
-        self.layout.setSpacing(3)
-
-        # 列表项显示区域
-        self.text_edit = QTextEdit()
-        self.text_edit.setPlaceholderText("每行输入一个值")
-        self.text_edit.setMaximumHeight(80)
-        self.text_edit.setStyleSheet("""
-            QTextEdit {
-                border: 1px solid #ccc;
-                border-radius: 3px;
-                padding: 2px;
-            }
-        """)
-
-        # 按钮区域
-        button_layout = QHBoxLayout()
-        button_layout.setSpacing(5)
-
-        self.add_btn = QPushButton("添加项")
-        self.add_btn.setStyleSheet("""
-            QPushButton {
-                padding: 3px 10px;
-                background-color: #f8f8f8;
-                border-radius: 3px;
-                border: 1px solid #ccc;
-            }
-            QPushButton:hover {
-                background-color: #e8e8e8;
-            }
-        """)
-
-        self.clear_btn = QPushButton("清空")
-        self.clear_btn.setStyleSheet("""
-            QPushButton {
-                padding: 3px 10px;
-                background-color: #f8f8f8;
-                border-radius: 3px;
-                border: 1px solid #ccc;
-            }
-            QPushButton:hover {
-                background-color: #e8e8e8;
-            }
-        """)
-
-        button_layout.addWidget(self.add_btn)
-        button_layout.addWidget(self.clear_btn)
-        button_layout.addStretch()
-
-        self.layout.addWidget(self.text_edit)
-        self.layout.addLayout(button_layout)
-
-        # 连接信号
-        self.add_btn.clicked.connect(self.add_item)
-        self.clear_btn.clicked.connect(self.clear_items)
-        self.text_edit.textChanged.connect(self.on_text_changed)
-
-        self._value = []
-
-    def add_item(self):
-        """添加新项"""
-        self.text_edit.append("")
-        self.text_edit.setFocus()
-
-    def clear_items(self):
-        """清空所有项"""
-        self.text_edit.clear()
-        self._value = []
-        self.value_changed.emit(self._value)
-
-    def on_text_changed(self):
-        """文本内容变化时更新值"""
-        text = self.text_edit.toPlainText()
-        lines = [line.strip() for line in text.split('\n') if line.strip()]
-        self._value = lines
-        self.value_changed.emit(self._value)
-
-    def set_value(self, value):
-        """设置编辑器的值"""
-        if isinstance(value, list):
-            self._value = value
-            self.text_edit.setText('\n'.join([str(item) for item in value]))
-        elif isinstance(value, str):
-            self._value = [value]
-            self.text_edit.setText(value)
-        else:
-            self._value = []
-            self.text_edit.clear()
-
-    def get_value(self):
-        """获取编辑器的值"""
-        return self._value
+from src.views.components.collapsible_box import CollapsibleBox
+from src.views.components.list_editor import ListEditor
 
 
 class NodePropertiesEditor(QWidget):
@@ -504,10 +315,10 @@ class NodePropertiesEditor(QWidget):
         # 添加未实现的标签页
         placeholder_tab = QWidget()
         placeholder_layout = QVBoxLayout(placeholder_tab)
-        placeholder_label = QLabel("待实现的标签页")
+        placeholder_label = QLabel("json预览")
         placeholder_label.setAlignment(Qt.AlignCenter)
         placeholder_layout.addWidget(placeholder_label)
-        self.tab_widget.addTab(placeholder_tab, "未实现标签页")
+        self.tab_widget.addTab(placeholder_tab, "json预览")
 
         # 添加标签页窗口到主布局
         main_layout.addWidget(self.tab_widget)
@@ -777,6 +588,20 @@ class NodePropertiesEditor(QWidget):
             roi_offset_edit.setStyleSheet(self.INPUT_STYLE)
             widgets["区域偏移:"] = roi_offset_edit
 
+        for label, widget in widgets.items():
+            if isinstance(widget, QLineEdit):
+                widget.textChanged.connect(self.on_widget_changed)
+            elif isinstance(widget, QTextEdit):
+                widget.textChanged.connect(self.on_widget_changed)
+            elif isinstance(widget, QSpinBox):
+                widget.valueChanged.connect(self.on_widget_changed)
+            elif isinstance(widget, QDoubleSpinBox):
+                widget.valueChanged.connect(self.on_widget_changed)
+            elif isinstance(widget, QComboBox):
+                widget.currentTextChanged.connect(self.on_widget_changed)
+            elif isinstance(widget, QCheckBox):
+                widget.toggled.connect(self.on_widget_changed)
+
         return widgets
 
     def create_action_containers(self):
@@ -832,7 +657,7 @@ class NodePropertiesEditor(QWidget):
         elif action_type == "Click":
 
             target_edit = QLineEdit()
-            target_edit.setPlaceholderText("节点名或坐标 [x,y,w,h]")
+            target_edit.setPlaceholderText("节点名或坐标 [x,y,w,h],不填写则为识别目标")
             target_edit.setStyleSheet(self.INPUT_STYLE)
             widgets["点击目标:"] = target_edit
 
@@ -964,7 +789,7 @@ class NodePropertiesEditor(QWidget):
             widgets["自定义参数:"] = custom_param_edit
 
             target_edit = QLineEdit()
-            target_edit.setPlaceholderText("节点名或坐标 [x,y,w,h]")
+            target_edit.setPlaceholderText("节点名或坐标 [x,y,w,h],不填写则为识别目标")
             target_edit.setStyleSheet(self.INPUT_STYLE)
             widgets["目标:"] = target_edit
 
@@ -973,6 +798,20 @@ class NodePropertiesEditor(QWidget):
             target_offset_edit.setText("[0,0,0,0]")
             target_offset_edit.setStyleSheet(self.INPUT_STYLE)
             widgets["目标偏移:"] = target_offset_edit
+
+        for label, widget in widgets.items():
+            if isinstance(widget, QLineEdit):
+                widget.textChanged.connect(self.on_widget_changed)
+            elif isinstance(widget, QTextEdit):
+                widget.textChanged.connect(self.on_widget_changed)
+            elif isinstance(widget, QSpinBox):
+                widget.valueChanged.connect(self.on_widget_changed)
+            elif isinstance(widget, QDoubleSpinBox):
+                widget.valueChanged.connect(self.on_widget_changed)
+            elif isinstance(widget, QComboBox):
+                widget.currentTextChanged.connect(self.on_widget_changed)
+            elif isinstance(widget, QCheckBox):
+                widget.toggled.connect(self.on_widget_changed)
 
         return widgets
 
@@ -1011,6 +850,10 @@ class NodePropertiesEditor(QWidget):
         """切换自动保存模式"""
         self.auto_save = checked
         self.apply_button.setEnabled(not checked)
+
+        # 勾选自动保存后立即保存一次当前的修改
+        if checked:
+            self.apply_changes_silent()
 
     def on_widget_changed(self, *args):
         """当任何控件更改时触发"""
@@ -1061,6 +904,8 @@ class NodePropertiesEditor(QWidget):
         # 发送节点已更改信号
         self.node_changed.emit(self.current_node)
 
+        print(self.current_node.to_dict())
+
     def on_recognition_changed(self, recognition_type):
         """当识别算法类型改变时切换到对应的容器 - 优化版"""
         # 切换到对应算法的控件容器
@@ -1092,28 +937,15 @@ class NodePropertiesEditor(QWidget):
         try:
             self.is_updating_ui = True
 
+            # 首先清空所有输入字段
+            self.clear_all_inputs()
+
             if node is None:
                 # 创建一个默认节点
                 self.current_node = TaskNode("New Node")
             else:
                 # 判断传入的是什么类型的节点
-                if hasattr(node, 'name'):
-                    # 如果是TaskNode类型或已有name属性，直接使用
-                    self.current_node = node
-                else:
-                    # 如果是其他类型的节点（如Scene Graph中的Node），需要转换或适配
-                    try:
-                        # 尝试从node.id或其他属性获取名称
-                        name = getattr(node, 'id', f"Node_{id(node)}")
-                        # 尝试从node.data获取属性配置
-                        data = getattr(node, 'data', {})
-                        # 创建一个TaskNode
-                        self.current_node = TaskNode(name, **data)
-                    except Exception as e:
-                        # 如果转换失败，创建一个空节点
-                        print(f"Error converting node: {e}")
-                        self.current_node = TaskNode(f"Node_{id(node)}")
-
+                self.current_node = node
             # 更新界面
             self.update_ui_from_node()
         finally:
@@ -1174,10 +1006,11 @@ class NodePropertiesEditor(QWidget):
             else:
                 self.action_box.set_expanded(False)
 
-            # 如果有后继节点或中断节点，展开流程控制区域
-            if (self.current_node.next or self.current_node.interrupt or
-                    self.current_node.on_error):
-                self.flow_box.set_expanded(True)
+            # 不自动展开流程控制区域，即使有后继节点或中断节点
+            # 以下代码已被移除：
+            # if (self.current_node.next or self.current_node.interrupt or
+            #         self.current_node.on_error):
+            #     self.flow_box.set_expanded(True)
         finally:
             self.is_updating_ui = False
 
@@ -1628,33 +1461,38 @@ class NodePropertiesEditor(QWidget):
                         QMessageBox.warning(self, "输入错误", "自定义参数格式不正确，应为JSON格式")
 
     def apply_action_properties(self, silent=False):
-        """应用动作特有属性到节点 - 优化版"""
+        """应用动作特有属性到节点"""
         if not self.current_node:
             return
 
         action_type = self.current_node.action
         widgets = self.action_property_widgets.get(action_type, {})
 
-        # 处理点击目标相关属性
-        if "点击目标类型:" in widgets and "点击目标:" in widgets:
-            target_type = widgets["点击目标类型:"].currentText()
+        # 处理点击目标相关属性 - 直接根据内容解析，不使用类型
+        if "点击目标:" in widgets:
             target_edit = widgets["点击目标:"]
+            target_text = target_edit.text().strip()
 
-            if target_type == "自身":
+            if not target_text:
+                # 空值表示使用自身
                 self.current_node.target = True
-            elif target_type == "其他节点":
-                self.current_node.target = target_edit.text()
-            elif target_type == "固定坐标":
+            elif target_text.startswith('[') and target_text.endswith(']'):
+                # 尝试解析为坐标列表
                 try:
-                    target_str = target_edit.text().strip("[]").split(",")
+                    target_str = target_text.strip("[]").split(",")
                     target = [int(x.strip()) for x in target_str]
                     if len(target) == 4:
                         self.current_node.target = target
                     elif not silent:
                         QMessageBox.warning(self, "输入错误", "目标坐标格式不正确，应为[x,y,w,h]")
                 except Exception as e:
+                    # 解析失败，设置为字符串
+                    self.current_node.target = target_text
                     if not silent:
-                        QMessageBox.warning(self, "输入错误", f"目标坐标格式不正确: {str(e)}")
+                        print(f"将目标设置为字符串: {target_text}, 解析错误: {str(e)}")
+            else:
+                # 直接设置为节点名字符串
+                self.current_node.target = target_text
 
         # 处理目标偏移
         if "目标偏移:" in widgets:
@@ -1671,32 +1509,35 @@ class NodePropertiesEditor(QWidget):
                 if not silent:
                     QMessageBox.warning(self, "输入错误", f"目标偏移坐标格式不正确: {str(e)}")
 
-        # 处理滑动起点和终点相关属性
+        # 处理滑动起点和终点相关属性 - 同样直接根据内容解析
         for point_type, attr_name in [("起点", "begin"), ("终点", "end")]:
-            type_key = f"{point_type}类型:"
             point_key = f"{point_type}:"
             offset_key = f"{point_type}偏移:"
 
-            if type_key in widgets and point_key in widgets:
-                point_type_combo = widgets[type_key]
+            if point_key in widgets:
                 point_edit = widgets[point_key]
-                point_type_value = point_type_combo.currentText()
+                point_text = point_edit.text().strip()
 
-                if point_type_value == "自身":
+                if not point_text:
+                    # 空值表示使用自身
                     setattr(self.current_node, attr_name, True)
-                elif point_type_value == "其他节点":
-                    setattr(self.current_node, attr_name, point_edit.text())
-                elif point_type_value == "固定坐标":
+                elif point_text.startswith('[') and point_text.endswith(']'):
+                    # 尝试解析为坐标列表
                     try:
-                        point_str = point_edit.text().strip("[]").split(",")
+                        point_str = point_text.strip("[]").split(",")
                         point = [int(x.strip()) for x in point_str]
                         if len(point) == 4:
                             setattr(self.current_node, attr_name, point)
                         elif not silent:
                             QMessageBox.warning(self, "输入错误", f"{point_type}坐标格式不正确，应为[x,y,w,h]")
                     except Exception as e:
+                        # 解析失败，设置为字符串
+                        setattr(self.current_node, attr_name, point_text)
                         if not silent:
-                            QMessageBox.warning(self, "输入错误", f"{point_type}坐标格式不正确: {str(e)}")
+                            print(f"将{point_type}设置为字符串: {point_text}, 解析错误: {str(e)}")
+                else:
+                    # 直接设置为节点名字符串
+                    setattr(self.current_node, attr_name, point_text)
 
             # 处理偏移
             if offset_key in widgets:
@@ -1713,7 +1554,7 @@ class NodePropertiesEditor(QWidget):
                     if not silent:
                         QMessageBox.warning(self, "输入错误", f"{point_type}偏移坐标格式不正确: {str(e)}")
 
-        # 处理其他特有属性
+        # 处理其他特有属性 (保持不变)
         for widget_label, widget in widgets.items():
             # 跳过已处理的属性
             if (widget_label.startswith("点击目标") or
@@ -1784,6 +1625,65 @@ class NodePropertiesEditor(QWidget):
                 except:
                     if not silent:
                         QMessageBox.warning(self, "输入错误", "自定义参数格式不正确，应为JSON格式")
+
+    def clear_all_inputs(self):
+        """清空所有输入字段"""
+        # 清空基本属性
+        self.node_name_input.clear()
+        self.recognition_combo.setCurrentIndex(0)
+        self.action_combo.setCurrentIndex(0)
+
+        # 清空流程控制属性
+        self.next_editor.set_value([])
+        self.interrupt_editor.set_value([])
+        self.on_error_editor.set_value([])
+
+        # 清空通用属性
+        self.is_sub_check.setChecked(False)
+        self.rate_limit_spin.setValue(1000)  # 默认值
+        self.timeout_spin.setValue(20000)  # 默认值
+        self.inverse_check.setChecked(False)
+        self.enabled_check.setChecked(True)  # 默认值
+        self.pre_delay_spin.setValue(200)  # 默认值
+        self.post_delay_spin.setValue(200)  # 默认值
+        self.pre_wait_freezes_spin.setValue(0)
+        self.post_wait_freezes_spin.setValue(0)
+        self.focus_check.setChecked(False)
+
+        # 清空所有识别算法特有属性
+        for rec_type, widgets in self.recognition_property_widgets.items():
+            for label, widget in widgets.items():
+                if isinstance(widget, QLineEdit):
+                    widget.clear()
+                elif isinstance(widget, QTextEdit):
+                    widget.clear()
+                elif isinstance(widget, QSpinBox) or isinstance(widget, QDoubleSpinBox):
+                    widget.setValue(widget.minimum())
+                elif isinstance(widget, QComboBox):
+                    widget.setCurrentIndex(0)
+                elif isinstance(widget, QCheckBox):
+                    widget.setChecked(False)
+
+        # 清空所有动作特有属性
+        for action_type, widgets in self.action_property_widgets.items():
+            for label, widget in widgets.items():
+                if isinstance(widget, QLineEdit):
+                    widget.clear()
+                elif isinstance(widget, QTextEdit):
+                    widget.clear()
+                elif isinstance(widget, QSpinBox):
+                    widget.setValue(widget.minimum())
+                elif isinstance(widget, QComboBox):
+                    widget.setCurrentIndex(0)
+                elif isinstance(widget, QCheckBox):
+                    widget.setChecked(False)
+
+        # 折叠所有属性组
+        self.flow_box.set_expanded(False)
+        self.recognition_box.set_expanded(False)
+        self.action_box.set_expanded(False)
+        self.common_box.set_expanded(False)
+        self.delay_box.set_expanded(False)
 
     def reset_form(self):
         """重置表单到当前节点的原始状态 - 优化版"""

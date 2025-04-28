@@ -184,8 +184,9 @@ class DisconnectNodesCommand(Command):
     def __init__(self, connection, canvas):
         self.connection = connection
         self.canvas = canvas
-        self.source_port = connection.source_port
-        self.target_port = connection.target_port
+        # 使用get_source()和get_target()方法获取端口
+        self.source_port = connection.get_source()
+        self.target_port = connection.get_target()
 
     def execute(self):
         """执行断开命令"""
@@ -196,7 +197,6 @@ class DisconnectNodesCommand(Command):
         # 使用正确的方法恢复连接
         self.canvas.connection_manager.connecting_port = self.source_port
         self.connection = self.canvas.connection_manager.finish_connection(self.target_port)
-
 
 class CommandManager:
     """命令管理器，用于管理撤销/重做栈"""

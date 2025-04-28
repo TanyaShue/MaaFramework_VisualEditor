@@ -293,21 +293,39 @@ class EnhancedInfiniteCanvas(QWidget):
                 # 更新临时连线路径到目标位置
                 self.connection_manager.update_temp_connection(target_pos)
 
-                # 如果找到了合适的目标端口并且可以连接，则完成连线
+                # 如果找到了合适的目标端口并且可以连接，则检查是否已存在连接
                 if target_port and self.connection_manager.connecting_port.can_connect(target_port):
-                    # 保存当前输出端口，避免 finish_connection 后状态被清空
+                    # 保存当前输出端口，避免后续操作后状态被清空
                     source_port = self.connection_manager.connecting_port
 
-                    # 使用命令模式创建连接
-                    connection = self.command_manager.execute(
-                        ConnectNodesCommand(source_port, target_port, self)
-                    )
+                    # 检查是否已存在连接
+                    existing_connection = self.connection_manager.find_connection(source_port, target_port)
 
-                    if connection:
+                    if existing_connection:
+                        # 如果存在连接，使用命令管理器执行断开命令
+                        from src.canvas_commands import DisconnectNodesCommand
+
+                        self.command_manager.execute(
+                            DisconnectNodesCommand(existing_connection, self)
+                        )
+
                         port_name = getattr(target_port, "port_name", "输入")
                         self.info_label.setText(
-                            f"已创建从 {source_port.parent_node.id} 到 {target_port.parent_node.id} 的 {port_name} 连接"
+                            f"已移除从 {source_port.parent_node.id} 到 {target_port.parent_node.id} 的 {port_name} 连接"
                         )
+                        # 取消当前连线操作
+                        self.connection_manager.cancel_connection()
+                    else:
+                        # 如果不存在连接，使用命令模式创建
+                        connection = self.command_manager.execute(
+                            ConnectNodesCommand(source_port, target_port, self)
+                        )
+
+                        if connection:
+                            port_name = getattr(target_port, "port_name", "输入")
+                            self.info_label.setText(
+                                f"已创建从 {source_port.parent_node.id} 到 {target_port.parent_node.id} 的 {port_name} 连接"
+                            )
                 else:
                     # 如果无法连接，则给出提示并取消连线操作
                     self.info_label.setText("无法连接这些端口")

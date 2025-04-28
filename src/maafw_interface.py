@@ -1,11 +1,14 @@
+from maa import tasker
+from maa.controller import AdbController
+
+
 class MaafwInterface:
     def __init__(self):
         self.controller = None
 
-    def connect_controller(self):
-        # 这里只是一个占位符，实际实现会连接到MAAFW
-        print("连接到MaaFramework控制器")
-        return True
+        # AdbController(adb_path="D:\\leidian\\LDPlayer9\\adb.exe",address="127.0.0.1:5555")
+        # tasker.Controller.post_screencap()
+
 
     def disconnect_controller(self):
         # 这里只是一个占位符，实际实现会断开MAAFW连接
