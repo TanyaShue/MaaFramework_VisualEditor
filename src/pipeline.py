@@ -440,6 +440,63 @@ class TaskNode:
 
         return errors
 
+    def to_json(self, indent=None) -> str:
+        """
+        将节点转换为JSON格式字符串，格式为 {"节点名称": {节点属性}}
+
+        Args:
+            indent: JSON字符串的缩进级别，None表示无缩进的紧凑格式
+
+        Returns:
+            表示节点的JSON格式字符串
+        """
+        # 获取节点属性字典
+        node_dict = self.to_dict()
+
+        # 创建以节点名称为键的字典
+        result_dict = {self.name: node_dict}
+
+        # 转换为JSON字符串
+        return json.dumps(result_dict, ensure_ascii=False, indent=indent)
+
+    @staticmethod
+    def from_json(json_str: str) -> 'TaskNode':
+        """
+        从JSON字符串创建TaskNode对象，JSON格式为 {"节点名称": {节点属性}}
+
+        Args:
+            json_str: 表示节点的JSON格式字符串
+
+        Returns:
+            根据JSON字符串创建的TaskNode对象
+
+        Raises:
+            ValueError: 当JSON字符串无法解析或格式不正确时抛出
+        """
+        try:
+            # 解析JSON字符串为字典
+            data = json.loads(json_str)
+
+            # 确认JSON格式为 {"节点名称": {节点属性}}
+            if len(data) != 1:
+                raise ValueError("JSON must contain exactly one node with format {'node_name': {properties}}")
+
+            # 获取节点名称和属性
+            node_name = next(iter(data))
+            node_properties = data[node_name]
+
+            # 确保node_properties是字典
+            if not isinstance(node_properties, dict):
+                raise ValueError("Node properties must be a dictionary")
+
+            # 创建TaskNode对象并返回
+            return TaskNode(node_name, **node_properties)
+
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Invalid JSON string: {e}")
+        except Exception as e:
+            raise ValueError(f"Failed to create TaskNode from JSON: {e}")
+
 
 class Pipeline:
     """任务流水线类"""
@@ -447,6 +504,7 @@ class Pipeline:
     def __init__(self):
         """初始化流水线对象"""
         self.nodes: Dict[str, TaskNode] = {}
+        self.from_path = None
 
     def add_node(self, node: TaskNode) -> None:
         """
@@ -603,6 +661,7 @@ class Pipeline:
         Returns:
             流水线对象
         """
+        cls.from_path=file_path
         with open(file_path, 'r', encoding='utf-8') as f:
             return cls.from_dict(json.load(f))
 
@@ -738,3 +797,5 @@ class Pipeline:
                 errors[name] = node_errors
 
         return errors
+
+open_pipeline=Pipeline()

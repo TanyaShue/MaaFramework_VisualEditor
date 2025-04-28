@@ -1,6 +1,7 @@
 import json
 
 from PySide6.QtCore import Qt, Signal, QTimer
+from PySide6.QtGui import QTextCursor, QFont
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QLabel, QFormLayout,
                                QLineEdit, QSpinBox, QPushButton, QCheckBox,
                                QComboBox, QTextEdit, QDoubleSpinBox, QHBoxLayout,
@@ -312,13 +313,59 @@ class NodePropertiesEditor(QWidget):
         # 添加属性标签页到标签页窗口
         self.tab_widget.addTab(properties_tab, "属性")
 
-        # 添加未实现的标签页
-        placeholder_tab = QWidget()
-        placeholder_layout = QVBoxLayout(placeholder_tab)
-        placeholder_label = QLabel("json预览")
-        placeholder_label.setAlignment(Qt.AlignCenter)
-        placeholder_layout.addWidget(placeholder_label)
-        self.tab_widget.addTab(placeholder_tab, "json预览")
+        json_tab = QWidget()
+        json_layout = QVBoxLayout(json_tab)
+
+        # Banner de error para mostrar cuando el JSON no es válido
+        self.json_error_banner = QLabel()
+        self.json_error_banner.setStyleSheet("""
+            QLabel {
+                background-color: #ffdddd;
+                color: #990000;
+                padding: 8px;
+                border-radius: 3px;
+                border: 1px solid #990000;
+                margin-bottom: 5px;
+            }
+        """)
+        self.json_error_banner.setWordWrap(True)
+        self.json_error_banner.hide()
+        json_layout.addWidget(self.json_error_banner)
+
+        # Editor de JSON
+        self.json_editor = QTextEdit()
+        self.json_editor.setLineWrapMode(QTextEdit.NoWrap)
+
+        # Configuración del editor para mejor visualización
+        font = QFont("Consolas, Courier New, monospace", 11)
+        font.setFixedPitch(True)
+        self.json_editor.setFont(font)
+        self.json_editor.setStyleSheet("""
+            QTextEdit {
+                font-family: monospace;
+                font-size: 12px;
+                background-color: #f8f8f8;
+                border: 1px solid #ddd;
+                border-radius: 3px;
+            }
+        """)
+        json_layout.addWidget(self.json_editor, 1)
+
+        # Botones para aplicar o descartar cambios
+        json_button_layout = QHBoxLayout()
+        self.json_apply_button = QPushButton("应用JSON")
+        self.json_apply_button.setStyleSheet(self.BUTTON_STYLE)
+        self.json_reset_button = QPushButton("重置JSON")
+        self.json_reset_button.setStyleSheet(self.RESET_BUTTON_STYLE)
+
+        json_button_layout.addStretch()
+        json_button_layout.addWidget(self.json_reset_button)
+        json_button_layout.addWidget(self.json_apply_button)
+        json_layout.addLayout(json_button_layout)
+
+        # Reemplazar la pestaña de marcador de posición
+        self.tab_widget.removeTab(1)  # Eliminar la pestaña de placeholder
+        self.tab_widget.addTab(json_tab, "json预览")
 
         # 添加标签页窗口到主布局
         main_layout.addWidget(self.tab_widget)
@@ -824,7 +871,9 @@ class NodePropertiesEditor(QWidget):
         # 应用和重置按钮
         self.apply_button.clicked.connect(self.apply_changes)
         self.reset_button.clicked.connect(self.reset_form)
-
+        self.json_apply_button.clicked.connect(self.apply_json_to_node)
+        self.json_reset_button.clicked.connect(self.update_json_preview)
+        self.tab_widget.currentChanged.connect(self.on_tab_changed)
         # 自动保存复选框
         self.auto_save_check.toggled.connect(self.toggle_auto_save)
 
@@ -858,6 +907,8 @@ class NodePropertiesEditor(QWidget):
     def on_widget_changed(self, *args):
         """当任何控件更改时触发"""
         # 如果正在批量更新UI，不触发自动保存
+        if self.tab_widget.currentIndex() == 1:
+            QTimer.singleShot(300, self.update_json_preview)
         if self.is_updating_ui:
             return
 
@@ -868,6 +919,9 @@ class NodePropertiesEditor(QWidget):
 
     def apply_changes_silent(self):
         """静默应用更改，不显示消息框"""
+        if self.tab_widget.currentIndex() == 1:
+            self.update_json_preview()
+
         if not self.current_node or not self.auto_save:
             return
 
@@ -935,6 +989,7 @@ class NodePropertiesEditor(QWidget):
     def set_node(self, node=None):
         """设置要编辑的节点，如果为None则创建一个默认节点 - 优化版"""
         try:
+            self.update_json_preview()
             self.is_updating_ui = True
 
             # 首先清空所有输入字段
@@ -1690,3 +1745,69 @@ class NodePropertiesEditor(QWidget):
         if self.current_node:
             self.update_ui_from_node()
             QMessageBox.information(self, "提示", "表单已重置为当前节点状态")
+
+    def on_tab_changed(self, index):
+        """Cuando el usuario cambia a la pestaña JSON, actualizar la vista"""
+        if index == 1:  # La pestaña JSON es la segunda (índice 1)
+            self.update_json_preview()
+
+    def update_json_preview(self):
+        """Actualiza la vista previa de JSON con los datos actuales del nodo con mejor formato"""
+        if not self.current_node:
+            return
+
+        try:
+            # Ocultar cualquier mensaje de error anterior
+            self.json_error_banner.hide()
+
+            # Usar el método to_json del nodo con formato
+            json_text = self.current_node.to_json(indent=4)
+
+            # Actualizar el editor sin disparar la señal textChanged
+            self.is_updating_ui = True
+            self.json_editor.setPlainText(json_text)
+            self.is_updating_ui = False
+
+            # Mover el cursor al inicio del documento
+            cursor = self.json_editor.textCursor()
+            cursor.movePosition(QTextCursor.Start)
+            self.json_editor.setTextCursor(cursor)
+
+        except Exception as e:
+            self.json_error_banner.setText(f"Error al generar JSON: {str(e)}")
+            self.json_error_banner.show()
+
+    def apply_json_to_node(self):
+        """Aplica el JSON editado al nodo actual"""
+        if not self.current_node:
+            return
+
+        try:
+            # Obtener el texto JSON
+            json_text = self.json_editor.toPlainText()
+
+            # Usar el método estático from_json para crear un nuevo nodo
+            new_node = TaskNode.from_json(json_text)
+
+            # Actualizar el nodo actual con las propiedades del nuevo nodo
+            # Preservamos la referencia al objeto pero actualizamos sus propiedades
+            for key, value in new_node.__dict__.items():
+                setattr(self.current_node, key, value)
+
+            # Actualizar la interfaz de usuario para reflejar los cambios
+            self.update_ui_from_node()
+
+            # Ocultar cualquier mensaje de error
+            self.json_error_banner.hide()
+
+            # Emitir señal de que el nodo ha cambiado
+            self.node_changed.emit(self.current_node)
+
+        except ValueError as e:
+            # Mostrar error de validación
+            self.json_error_banner.setText(f"{str(e)}")
+            self.json_error_banner.show()
+        except Exception as e:
+            # Mostrar error para otros problemas
+            self.json_error_banner.setText(f"Error al aplicar JSON: {str(e)}")
+            self.json_error_banner.show()

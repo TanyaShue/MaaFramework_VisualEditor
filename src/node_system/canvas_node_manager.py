@@ -1,36 +1,35 @@
 from PySide6.QtGui import QColor, Qt, QPen
-from PySide6.QtCore import QPointF, Signal
-
+from PySide6.QtCore import QPointF, Signal, QObject
 from src.node_system.node import Node
+from src.pipeline import TaskNode, open_pipeline
 
-
-from PySide6.QtCore import QObject, Signal
 
 class CanvasNodeManager(QObject):
     """
-    节点操作的统一管理器。
+    节点操作的统一管理器。与Pipeline协作管理节点的UI表示和逻辑关系。
     """
     OpenNodeChanged = Signal(list)
 
     def __init__(self, canvas, scene):
-        super().__init__()  # 别忘了加 super().__init__()
+        super().__init__()
 
         self.canvas = canvas
         self.scene = scene
         self.connection_manager = canvas.connection_manager
         self.command_manager = canvas.command_manager
 
-        # 节点集合
-        self.nodes = []
-        self.selected_nodes = []
-        self.open_nodes = []
+        # UI节点集合
+        self.nodes = []  # 场景中的所有节点
+        self.selected_nodes = []  # 当前选中的节点
+        self.open_nodes = []  # 当前打开的节点
 
-        self.current_file = None
-
+        # 节点显示状态的颜色
         self.SELECTED_COLOR = QColor(255, 255, 0)
         self.OPEN_COLOR = QColor(0, 200, 0)
         self.DEFAULT_COLOR = QColor(100, 100, 100)
 
+        # 创建Pipeline实例用于逻辑管理
+        self.pipeline = open_pipeline
 
     def load_file(self, file_path):
         """
@@ -39,38 +38,62 @@ class CanvasNodeManager(QObject):
         参数:
             file_path: 包含节点数据的文件路径
         """
-        self.current_file = file_path
-        # 清除现有节点
+        # 清除当前节点
         self.clear()
 
-        # 实际实现中，应该:
-        # 1. 解析文件(JSON, XML等)
-        # 2. 根据解析数据创建节点
-        # 3. 设置节点间的连接
-        # 4. 根据保存的布局放置节点
+        try:
+            # 使用Pipeline加载文件
+            self.pipeline = self.pipeline.__class__.load_from_file(file_path)
 
-        return True
+            # 从Pipeline创建可视化节点
+            node_map = {}  # 存储名称到节点的映射
+
+            for name, task_node in self.pipeline.nodes.items():
+                # 创建视觉节点
+                node = self._create_visual_node_from_task(task_node)
+                self.add_node(node)
+                node_map[name] = node
+
+            # 创建节点间的连接
+            self._create_connections_from_tasks(node_map)
+
+            return True
+        except Exception as e:
+            print(f"加载文件时出错: {str(e)}")
+            import traceback
+            print(traceback.format_exc())
+            return False
 
     def save_to_file(self, file_path=None):
         """
         保存当前节点到文件。
 
         参数:
-            file_path: 保存文件的路径。如果为None，使用current_file。
+            file_path: 保存文件的路径
 
         返回:
             bool: 成功或失败
         """
-        if file_path:
-            self.current_file = file_path
-
-        if not self.current_file:
+        if not file_path and not hasattr(self.pipeline, 'current_file'):
             return False
 
-        # 这里应该有序列化节点和连接的代码
-        # 可以使用get_nodes_state()方法获取节点状态
+        try:
+            # 更新Pipeline中的节点数据
+            self._update_pipeline_from_visual()
 
-        return True
+            # 使用Pipeline保存数据
+            self.pipeline.save_to_file(file_path)
+
+            # 更新当前文件路径
+            if file_path:
+                self.pipeline.current_file = file_path
+
+            return True
+        except Exception as e:
+            print(f"保存文件时出错: {str(e)}")
+            import traceback
+            print(traceback.format_exc())
+            return False
 
     def add_node(self, node):
         """
@@ -82,8 +105,7 @@ class CanvasNodeManager(QObject):
         返回:
             添加的节点
         """
-        # 可以使用命令管理器支持撤销/重做
-
+        # 添加到场景
         self.scene.addItem(node)
         self.nodes.append(node)
 
@@ -106,44 +128,12 @@ class CanvasNodeManager(QObject):
         # 确保节点的paint方法使用此属性
         self._enhance_node(node)
 
+        # 同步到Pipeline中的逻辑节点
+        if hasattr(node, 'task_data'):
+            task_node = TaskNode(node.id, **node.task_data)
+            self.pipeline.add_node(task_node)
+
         return node
-
-    def _enhance_node(self, node):
-        """
-        增强节点，只为特殊状态节点添加边框。
-
-        参数:
-            node: 要增强的节点
-        """
-        # 存储原始paint方法
-        if not hasattr(node, 'original_paint'):
-            node.original_paint = node.paint
-
-            # 定义新的paint方法
-            def enhanced_paint(painter, option, widget):
-                # 暂存选中状态
-                was_selected = node.isSelected()
-
-                # 临时取消选中状态，避免QGraphicsItem绘制默认选中边框
-                if was_selected:
-                    node.setSelected(False)
-
-                # 调用原始绘制方法（现在不会绘制默认选中边框）
-                node.original_paint(painter, option, widget)
-
-                # 恢复选中状态（不会触发重绘）
-                if was_selected:
-                    node.setSelected(True)
-
-                # 只为选中或打开的节点绘制自定义彩色边框
-                if node.border_color != self.DEFAULT_COLOR:
-                    pen = QPen(node.border_color, 2)
-                    painter.setPen(pen)
-                    painter.setBrush(Qt.NoBrush)  # 确保不填充矩形
-                    painter.drawRect(node.boundingRect().adjusted(1, 1, -1, -1))
-
-            # 替换paint方法
-            node.paint = enhanced_paint
 
     def remove_node(self, node):
         """
@@ -177,6 +167,10 @@ class CanvasNodeManager(QObject):
             self.selected_nodes.remove(node)
         if node in self.open_nodes:
             self.open_nodes.remove(node)
+
+        # 从Pipeline中移除节点
+        if hasattr(node, 'id') and node.id in self.pipeline.nodes:
+            del self.pipeline.nodes[node.id]
 
     def select_node(self, node, selected=True):
         """
@@ -248,6 +242,43 @@ class CanvasNodeManager(QObject):
 
         node.update()  # 触发重绘
 
+    def _enhance_node(self, node):
+        """
+        增强节点，只为特殊状态节点添加边框。
+
+        参数:
+            node: 要增强的节点
+        """
+        # 存储原始paint方法
+        if not hasattr(node, 'original_paint'):
+            node.original_paint = node.paint
+
+            # 定义新的paint方法
+            def enhanced_paint(painter, option, widget):
+                # 暂存选中状态
+                was_selected = node.isSelected()
+
+                # 临时取消选中状态，避免QGraphicsItem绘制默认选中边框
+                if was_selected:
+                    node.setSelected(False)
+
+                # 调用原始绘制方法（现在不会绘制默认选中边框）
+                node.original_paint(painter, option, widget)
+
+                # 恢复选中状态（不会触发重绘）
+                if was_selected:
+                    node.setSelected(True)
+
+                # 只为选中或打开的节点绘制自定义彩色边框
+                if node.border_color != self.DEFAULT_COLOR:
+                    pen = QPen(node.border_color, 2)
+                    painter.setPen(pen)
+                    painter.setBrush(Qt.NoBrush)  # 确保不填充矩形
+                    painter.drawRect(node.boundingRect().adjusted(1, 1, -1, -1))
+
+            # 替换paint方法
+            node.paint = enhanced_paint
+
     def clear(self):
         """清除所有节点"""
         for node in self.nodes[:]:
@@ -255,6 +286,9 @@ class CanvasNodeManager(QObject):
 
         self.selected_nodes.clear()
         self.open_nodes.clear()
+
+        # 清空Pipeline
+        self.pipeline = self.pipeline.__class__()
 
     def get_selected_nodes(self):
         """获取所有选中的节点"""
@@ -289,6 +323,10 @@ class CanvasNodeManager(QObject):
         返回:
             list: 包含所有节点状态信息的列表
         """
+        # 先更新Pipeline
+        self._update_pipeline_from_visual()
+
+        # 使用原始的可视化节点属性
         nodes_data = []
 
         for node in self.nodes:
@@ -359,3 +397,150 @@ class CanvasNodeManager(QObject):
         """取消选择所有节点"""
         self.scene.clearSelection()
         self.update_from_scene_selection()
+
+    # 新增的方法用于与Pipeline交互
+    def _create_visual_node_from_task(self, task_node):
+        """
+        从TaskNode创建可视化节点
+
+        参数:
+            task_node: Pipeline中的TaskNode实例
+
+        返回:
+            创建的可视化Node实例
+        """
+        # 假设Node类的构造函数支持id和title参数
+        node = Node(
+            id=task_node.name,
+            title=task_node.name
+        )
+
+        # 存储任务节点数据，便于后续同步
+        node.task_data = task_node.to_dict()
+
+        # 可以根据任务节点类型设置不同的外观
+        if hasattr(task_node, 'recognition'):
+            # 可以根据不同算法类型设置不同的外观
+            pass
+
+        if hasattr(task_node, 'action'):
+            # 可以根据不同动作类型设置不同的外观
+            pass
+
+        return node
+
+    def _create_connections_from_tasks(self, node_map):
+        """
+        根据Pipeline中的任务节点关系创建可视化连接
+
+        参数:
+            node_map: 从任务节点名称到可视化节点的映射
+        """
+        # 遍历所有任务节点
+        for name, task_node in self.pipeline.nodes.items():
+            if name not in node_map:
+                continue
+
+            source_node = node_map[name]
+
+            # 处理next连接
+            next_nodes = []
+            if isinstance(task_node.next, list):
+                next_nodes = task_node.next
+            elif task_node.next:
+                next_nodes = [task_node.next]
+
+            for next_name in next_nodes:
+                if next_name in node_map:
+                    target_node = node_map[next_name]
+
+                    # 创建连接 - 这里需要根据实际的连接管理器实现调整
+                    self._create_connection(source_node, target_node)
+
+    def _create_connection(self, source_node, target_node):
+        """
+        在两个节点之间创建连接
+
+        参数:
+            source_node: 源节点
+            target_node: 目标节点
+        """
+        # 获取输出和输入端口
+        source_port = source_node.get_output_ports()[0]  # 假设使用第一个输出端口
+        target_port = target_node.get_input_port()
+
+        # 检查端口是否有效
+        if source_port and target_port:
+            # 使用连接管理器创建连接
+            self.connection_manager.create_connection(source_port, target_port)
+
+    def _update_pipeline_from_visual(self):
+        """将可视化节点的状态更新到Pipeline中的逻辑节点"""
+        # 清空当前Pipeline
+        self.pipeline = self.pipeline.__class__()
+
+        # 从可视化节点重建Pipeline中的任务节点
+        for node in self.nodes:
+            if hasattr(node, 'task_data'):
+                task_node = TaskNode(node.id, **node.task_data)
+                self.pipeline.add_node(task_node)
+            else:
+                # 如果节点没有关联任务数据，创建基本任务节点
+                task_node = TaskNode(
+                    name=node.id,
+                    recognition="DirectHit",
+                    action="DoNothing"
+                )
+                self.pipeline.add_node(task_node)
+
+        # 更新节点间的连接关系
+        self._update_pipeline_connections()
+
+    def _update_pipeline_connections(self):
+        """根据可视化连接更新Pipeline中的节点关系"""
+        # 获取所有连接
+        connections = self.connection_manager.get_all_connections()
+
+        # 清除所有节点的next属性
+        for task_node in self.pipeline.nodes.values():
+            task_node.next = []
+
+        # 遍历所有连接，更新next关系
+        for connection in connections:
+            source_port = connection.source_port
+            target_port = connection.target_port
+
+            if source_port and target_port:
+                source_node_id = source_port.parent_node.id
+                target_node_id = target_port.parent_node.id
+
+                if source_node_id in self.pipeline.nodes and target_node_id in self.pipeline.nodes:
+                    source_task = self.pipeline.nodes[source_node_id]
+                    source_task.add_next_node(target_node_id)
+
+    def validate(self):
+        """
+        验证当前Pipeline配置
+
+        返回:
+            dict: 验证错误信息
+        """
+        # 先更新Pipeline
+        self._update_pipeline_from_visual()
+
+        # 执行Pipeline验证
+        config_errors = self.pipeline.validate()
+        reference_errors = self.pipeline.check_references()
+
+        # 合并错误信息
+        errors = {}
+        for name, node_errors in config_errors.items():
+            errors[name] = node_errors
+
+        for name, node_errors in reference_errors.items():
+            if name in errors:
+                errors[name].extend(node_errors)
+            else:
+                errors[name] = node_errors
+
+        return errors

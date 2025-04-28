@@ -11,10 +11,10 @@ from src.views.infinite_canvas import EnhancedInfiniteCanvas
 from src.views.node_properties_editor import NodePropertiesEditor
 from src.views.node_library import NodeLibrary
 from .canvas_commands import ConnectNodesCommand
-from .config_manager import ConfigManager, config_manager
+from .config_manager import config_manager
 from .maafw_interface import MaafwInterface
 from .node_system.node import Node
-from .pipeline import Pipeline
+from src.pipeline import open_pipeline
 from .views.controller_view import ControllerView
 from .views.resource_library import ResourceLibrary
 
@@ -412,7 +412,7 @@ class MainWindow(QMainWindow):
 
         try:
             # 从文件加载流水线
-            pipeline = Pipeline.load_from_file(file_path)
+            pipeline = open_pipeline.load_from_file(file_path)
 
             # 清除画布上的现有内容
             self.canvas.clear()
