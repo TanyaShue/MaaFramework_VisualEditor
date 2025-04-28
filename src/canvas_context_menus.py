@@ -10,7 +10,7 @@ class ContextMenus:
     def __init__(self, canvas):
         self.canvas = canvas
 
-    def show_node_context_menu(self, node, scene_pos, global_pos):
+    def show_node_context_menu(self, node, global_pos):
         """显示节点右键菜单
 
         Args:
@@ -54,8 +54,8 @@ class ContextMenus:
                 disconnect_menu = QMenu("断开连接", menu)
 
                 for conn in connections:
-                    source_node = conn.source_port.parent_node
-                    target_node = conn.target_port.parent_node
+                    source_node = conn.start_port.parent_node
+                    target_node = conn.end_port.parent_node
 
                     # 根据端口类型获取端口名称
                     source_port_name = getattr(conn.source_port, 'port_name',

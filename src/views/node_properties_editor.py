@@ -1760,7 +1760,6 @@ class NodePropertiesEditor(QWidget):
             # Ocultar cualquier mensaje de error anterior
             self.json_error_banner.hide()
 
-            # Usar el método to_json del nodo con formato
             json_text = self.current_node.to_json(indent=4)
 
             # Actualizar el editor sin disparar la señal textChanged
@@ -1786,7 +1785,6 @@ class NodePropertiesEditor(QWidget):
             # Obtener el texto JSON
             json_text = self.json_editor.toPlainText()
 
-            # Usar el método estático from_json para crear un nuevo nodo
             new_node = TaskNode.from_json(json_text)
 
             # Actualizar el nodo actual con las propiedades del nuevo nodo
