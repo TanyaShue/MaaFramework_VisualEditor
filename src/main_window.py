@@ -12,7 +12,6 @@ from src.views.node_properties_editor import NodePropertiesEditor
 from src.views.node_library import NodeLibrary
 from .canvas_commands import ConnectNodesCommand
 from .config_manager import config_manager
-from .maafw_interface import MaafwInterface
 from .node_system.node import Node
 from src.pipeline import open_pipeline
 from .views.controller_view import ControllerView
@@ -33,7 +32,6 @@ class MainWindow(QMainWindow):
         self.resource_library = ResourceLibrary()
         self.property_editor = NodePropertiesEditor()
         self.node_library = NodeLibrary()
-        self.maafw_interface = MaafwInterface()
 
         # 设置中央部件
         self.setCentralWidget(self.canvas)
@@ -166,10 +164,11 @@ class MainWindow(QMainWindow):
         node_library_dock.setAllowedAreas(Qt.LeftDockWidgetArea | Qt.RightDockWidgetArea)
         node_library_dock.setObjectName("node_library_dock")
         self.dock_widgets["node_library"] = node_library_dock
-        # 创建属性编辑器停靠窗口
+
+        # 创建属性编辑器停靠窗口 - 修改允许区域
         properties_dock = QDockWidget("节点属性", self)
         properties_dock.setWidget(self.property_editor)
-        properties_dock.setAllowedAreas(Qt.LeftDockWidgetArea | Qt.RightDockWidgetArea)
+        properties_dock.setAllowedAreas(Qt.LeftDockWidgetArea | Qt.RightDockWidgetArea | Qt.BottomDockWidgetArea)
         properties_dock.setObjectName("properties_dock")
         self.dock_widgets["properties"] = properties_dock
 
@@ -179,18 +178,24 @@ class MainWindow(QMainWindow):
         resource_library_dock.setObjectName("resource_library_dock")
         self.dock_widgets["resource_library"] = resource_library_dock
 
-        # 创建控制器视图停靠窗口 (替换原来的设置面板和模拟器视图)
+        # 创建控制器视图停靠窗口
         controller_dock = QDockWidget("控制器", self)
         controller_dock.setWidget(self.controller_view)
         controller_dock.setAllowedAreas(Qt.BottomDockWidgetArea | Qt.RightDockWidgetArea)
         controller_dock.setObjectName("controller_dock")
         self.dock_widgets["controller"] = controller_dock
 
-        # 添加停靠窗口到主窗口
+        # 添加停靠窗口到主窗口 - 修改布局位置
         self.addDockWidget(Qt.LeftDockWidgetArea, node_library_dock)
         self.addDockWidget(Qt.LeftDockWidgetArea, resource_library_dock)
-        self.addDockWidget(Qt.RightDockWidgetArea, properties_dock)
         self.addDockWidget(Qt.BottomDockWidgetArea, controller_dock)
+        self.addDockWidget(Qt.RightDockWidgetArea, properties_dock)  # 将属性编辑器放在右侧
+
+        # 创建标签页配置 - 使属性编辑器可以贴靠到控制器视图右侧
+        self.tabifyDockWidget(controller_dock, properties_dock)
+
+        # 确保属性编辑器在前面
+        properties_dock.raise_()
 
         self.resource_library.resource_opened.connect(self.on_resource_opened)
 

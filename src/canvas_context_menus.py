@@ -58,10 +58,8 @@ class ContextMenus:
                     target_node = conn.end_port.parent_node
 
                     # 根据端口类型获取端口名称
-                    source_port_name = getattr(conn.source_port, 'port_name',
-                                               conn.source_port.port_type)
-                    target_port_name = getattr(conn.target_port, 'port_name',
-                                               conn.target_port.port_type)
+                    source_port_name = getattr(source_node,"task_node",source_node.task_node.name)
+                    target_port_name = getattr(target_node,"task_node",target_node.task_node.name)
 
                     # 创建断开连接的动作
                     connection_label = f"{source_node.id}:{source_port_name} → {target_node.id}:{target_port_name}"
@@ -70,11 +68,6 @@ class ContextMenus:
                     )
 
                 menu.addMenu(disconnect_menu)
-
-        # 网格对齐
-        menu.addAction("对齐到网格").triggered.connect(
-            lambda: self._snap_to_grid(selected_nodes if multiple_selection else [node])
-        )
 
         # 显示菜单
         menu.exec(global_pos)

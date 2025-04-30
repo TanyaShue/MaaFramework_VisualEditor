@@ -1747,65 +1747,50 @@ class NodePropertiesEditor(QWidget):
             QMessageBox.information(self, "提示", "表单已重置为当前节点状态")
 
     def on_tab_changed(self, index):
-        """Cuando el usuario cambia a la pestaña JSON, actualizar la vista"""
-        if index == 1:  # La pestaña JSON es la segunda (índice 1)
+        if index == 1:
             self.update_json_preview()
 
     def update_json_preview(self):
-        """Actualiza la vista previa de JSON con los datos actuales del nodo con mejor formato"""
         if not self.current_node:
             return
 
         try:
-            # Ocultar cualquier mensaje de error anterior
             self.json_error_banner.hide()
 
             json_text = self.current_node.to_json(indent=4)
 
-            # Actualizar el editor sin disparar la señal textChanged
             self.is_updating_ui = True
             self.json_editor.setPlainText(json_text)
             self.is_updating_ui = False
 
-            # Mover el cursor al inicio del documento
             cursor = self.json_editor.textCursor()
             cursor.movePosition(QTextCursor.Start)
             self.json_editor.setTextCursor(cursor)
 
         except Exception as e:
-            self.json_error_banner.setText(f"Error al generar JSON: {str(e)}")
+            self.json_error_banner.setText(f"更新json预览失败 JSON: {str(e)}")
             self.json_error_banner.show()
 
     def apply_json_to_node(self):
-        """Aplica el JSON editado al nodo actual"""
         if not self.current_node:
             return
 
         try:
-            # Obtener el texto JSON
             json_text = self.json_editor.toPlainText()
 
             new_node = TaskNode.from_json(json_text)
-
-            # Actualizar el nodo actual con las propiedades del nuevo nodo
-            # Preservamos la referencia al objeto pero actualizamos sus propiedades
             for key, value in new_node.__dict__.items():
                 setattr(self.current_node, key, value)
 
-            # Actualizar la interfaz de usuario para reflejar los cambios
             self.update_ui_from_node()
 
-            # Ocultar cualquier mensaje de error
             self.json_error_banner.hide()
 
-            # Emitir señal de que el nodo ha cambiado
             self.node_changed.emit(self.current_node)
 
         except ValueError as e:
-            # Mostrar error de validación
             self.json_error_banner.setText(f"{str(e)}")
             self.json_error_banner.show()
         except Exception as e:
-            # Mostrar error para otros problemas
             self.json_error_banner.setText(f"Error al aplicar JSON: {str(e)}")
             self.json_error_banner.show()
