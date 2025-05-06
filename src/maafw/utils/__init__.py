@@ -1,6 +1,5 @@
-from numpy import ndarray
 from PIL import Image
-
+from numpy import ndarray
 
 
 def cvmat_to_image(cvmat: ndarray) -> Image.Image:

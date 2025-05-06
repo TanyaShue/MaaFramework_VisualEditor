@@ -1,19 +1,19 @@
 import os
 
+from PySide6.QtCore import Qt, Slot, QTimer
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (QMainWindow, QDockWidget, QStatusBar, QToolBar,
                                QWidget, QLabel, QPushButton, QHBoxLayout,
                                QMessageBox, QFileDialog)
-from PySide6.QtCore import Qt, Slot, QTimer
 
+from src.pipeline import open_pipeline
 from src.views.infinite_canvas import EnhancedInfiniteCanvas
+from src.views.node_library import NodeLibrary
 # 导入增强的InfiniteCanvas而不是原始版本
 from src.views.node_properties_editor import NodePropertiesEditor
-from src.views.node_library import NodeLibrary
 from .canvas_commands import ConnectNodesCommand
 from .config_manager import config_manager
 from .node_system.node import Node
-from src.pipeline import open_pipeline
 from .views.controller_view import ControllerView
 from .views.resource_library import ResourceLibrary
 

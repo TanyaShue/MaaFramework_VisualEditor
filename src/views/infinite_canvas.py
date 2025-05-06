@@ -1,12 +1,10 @@
+from PySide6.QtCore import Qt, QPointF, QRectF
+from PySide6.QtGui import QPen, QColor, QBrush, QMouseEvent, QWheelEvent, QKeyEvent
 from PySide6.QtWidgets import (QGraphicsView, QGraphicsScene, QLabel, QVBoxLayout,
-                               QWidget, QGraphicsItem, QGraphicsRectItem, QGraphicsSceneMouseEvent,
-                               QApplication, QMenu)
-from PySide6.QtCore import Qt, QPointF, QRectF, QByteArray, QDataStream, QIODevice, QBuffer
-from PySide6.QtGui import QPen, QColor, QBrush, QTransform, QMouseEvent, QWheelEvent, QPainterPath, QKeyEvent
+                               QWidget, QGraphicsRectItem)
 
 # 导入命令模式实现
-from src.canvas_commands import CommandManager, MoveNodesCommand, AddNodeCommand, DeleteNodesCommand, \
-    ConnectNodesCommand
+from src.canvas_commands import CommandManager, MoveNodesCommand, ConnectNodesCommand
 # 导入右键菜单实现
 from src.canvas_context_menus import ContextMenus
 from src.node_system.canvas_node_manager import CanvasNodeManager

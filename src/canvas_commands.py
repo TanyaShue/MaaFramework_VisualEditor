@@ -1,4 +1,3 @@
-from PySide6.QtCore import QPointF
 from abc import ABC, abstractmethod
 
 

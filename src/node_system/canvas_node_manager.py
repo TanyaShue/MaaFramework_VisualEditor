@@ -1,5 +1,6 @@
+from PySide6.QtCore import Signal, QObject
 from PySide6.QtGui import QColor, Qt, QPen
-from PySide6.QtCore import QPointF, Signal, QObject
+
 from src.node_system.node import Node
 from src.pipeline import TaskNode, open_pipeline
 

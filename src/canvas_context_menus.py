@@ -1,5 +1,5 @@
+from PySide6.QtCore import QPointF
 from PySide6.QtWidgets import QMenu, QInputDialog, QMessageBox
-from PySide6.QtCore import Qt, QPointF
 
 from src.canvas_commands import AddNodeCommand, DeleteNodesCommand
 

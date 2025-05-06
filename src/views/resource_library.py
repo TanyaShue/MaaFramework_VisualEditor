@@ -1,8 +1,9 @@
+import os
+
+from PySide6.QtCore import Signal, Slot
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QLabel,
                                QPushButton, QHBoxLayout, QFileDialog,
                                QLineEdit, QMessageBox, QScrollArea)
-from PySide6.QtCore import Signal, Slot
-import os
 
 
 class ResourceLibrary(QWidget):

@@ -1,7 +1,5 @@
-import math
-
 from PySide6.QtCore import Qt, QPointF, QRectF, QLineF, QTimer
-from PySide6.QtGui import QPainter, QPen, QPainterPath, QColor, QPainterPathStroker, QBrush
+from PySide6.QtGui import QPainter, QPen, QPainterPath, QColor, QPainterPathStroker
 from PySide6.QtWidgets import QGraphicsItem
 
 

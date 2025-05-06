@@ -1,498 +1,13 @@
-from PIL.Image import Image
-from PIL.ImageQt import QImage
-from PySide6.QtGui import QPixmap, QPainter, QColor, QPen, QBrush, QFont, QTransform, QCursor
+from PySide6.QtCore import Qt, Signal, QThread
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                                QFormLayout, QLineEdit, QPushButton, QComboBox,
-                               QToolBar, QSplitter, QStackedWidget, QGroupBox,
-                               QScrollArea, QMenu, QGraphicsView, QGraphicsScene,
-                               QGraphicsPixmapItem, QGraphicsRectItem, QGraphicsItem,
-                               QApplication)
-from PySide6.QtCore import Qt, Signal, QThread, QRect, QPoint, QRectF, QPointF, QSize, QMarginsF, QTimer
+                               QSplitter, QStackedWidget, QGroupBox,
+                               QMenu)
 from maa.toolkit import Toolkit
 from qasync import asyncSlot
 
 from src.maafw import maafw
-
-
-class SelectionRect(QGraphicsRectItem):
-    """Selection rectangle with info display"""
-
-    def __init__(self):
-        super().__init__()
-        self.setPen(QPen(QColor(255, 0, 0), 2, Qt.SolidLine))
-        self.setBrush(QBrush(QColor(255, 0, 0, 40)))
-        self.setZValue(100)  # Ensure it's on top
-        self.setFlag(QGraphicsItem.ItemIsMovable, False)
-
-    def paint(self, painter, option, widget):
-        """Customize the paint to add info overlay"""
-        # Paint the standard rectangle
-        super().paint(painter, option, widget)
-
-        # Get the normalized rectangle
-        rect = self.rect().normalized()
-
-        # Calculate the absolute coordinates in scene
-        scene_rect = self.sceneTransform().mapRect(rect)
-
-        # Check if we're in a valid view
-        if widget and widget.parentWidget():
-            view = widget.parentWidget()
-            if isinstance(view, DeviceImageView):
-                pixmap_item = view.pixmap_item
-
-                if pixmap_item:
-                    pixmap_rect = pixmap_item.boundingRect()
-                    if not pixmap_rect.isEmpty():
-                        # Calculate relative coordinates (0-1 range)
-                        pixmap_scene_pos = pixmap_item.scenePos()
-                        rel_x1 = (scene_rect.left() - pixmap_scene_pos.x()) / pixmap_rect.width()
-                        rel_y1 = (scene_rect.top() - pixmap_scene_pos.y()) / pixmap_rect.height()
-                        rel_x2 = (scene_rect.right() - pixmap_scene_pos.x()) / pixmap_rect.width()
-                        rel_y2 = (scene_rect.bottom() - pixmap_scene_pos.y()) / pixmap_rect.height()
-
-                        # Get zoom factor directly from view's method for consistency
-                        zoom_factor = view.get_zoom_factor()
-                        zoom = int(zoom_factor * 100)  # Convert to percentage and ensure integer value
-
-                        # Draw info panel
-                        info_width = 200
-                        info_height = 130
-                        info_margin = 10
-
-                        # Save painter state before any transformations
-                        painter.save()
-
-                        # Get the viewport
-                        viewport = view.viewport()
-
-                        # Reset all transformations to paint directly in viewport coordinates
-                        painter.resetTransform()
-
-                        # Calculate position in the top-right corner of the viewport
-                        # This ensures it stays fixed regardless of panning
-                        info_x = viewport.width() - info_width - info_margin
-                        info_y = info_margin
-
-                        # Use QPainter's device coordinate system
-                        device_rect = painter.viewport()
-                        painter.setWindow(device_rect)
-
-                        # Translate to viewport coordinates
-                        painter.translate(viewport.mapTo(widget, QPoint(0, 0)))
-
-                        # Draw info background
-                        painter.setPen(Qt.NoPen)
-                        painter.setBrush(QBrush(QColor(0, 0, 0, 150)))
-                        painter.drawRoundedRect(info_x, info_y, info_width, info_height, 5, 5)
-
-                        # Draw info text
-                        painter.setPen(QPen(QColor(255, 255, 255)))
-                        painter.setFont(QFont("Arial", 9))
-
-                        text = (f"选择区域信息:\n"
-                                f"起点: ({int(scene_rect.x())}, {int(scene_rect.y())})\n"
-                                f"终点: ({int(scene_rect.right())}, {int(scene_rect.bottom())})\n"
-                                f"大小: {int(scene_rect.width())} x {int(scene_rect.height())}\n"
-                                f"图像坐标:\n"
-                                f"({rel_x1:.3f}, {rel_y1:.3f}) - "
-                                f"({rel_x2:.3f}, {rel_y2:.3f})\n"
-                                f"缩放: {zoom}%")
-
-                        painter.drawText(info_x + 10, info_y + 10, info_width - 20, info_height - 20,
-                                         Qt.AlignLeft, text)
-
-                        # Restore painter state
-                        painter.restore()
-
-
-class DeviceImageView(QGraphicsView):
-    """Enhanced graphics view for device images with intuitive zooming and panning"""
-
-    # Signals
-    selectionChanged = Signal(QRectF)
-    selectionCleared = Signal()
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-
-        # Setup the view
-        self.setRenderHint(QPainter.Antialiasing, True)
-        self.setRenderHint(QPainter.SmoothPixmapTransform, True)
-        self.setDragMode(QGraphicsView.NoDrag)
-        self.setTransformationAnchor(QGraphicsView.AnchorUnderMouse)
-        self.setResizeAnchor(QGraphicsView.AnchorUnderMouse)
-        self.setViewportUpdateMode(QGraphicsView.FullViewportUpdate)
-        self.setOptimizationFlag(QGraphicsView.DontAdjustForAntialiasing, True)
-        self.setFrameShape(QGraphicsView.NoFrame)
-        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-
-        # Create scene
-        self.scene = QGraphicsScene(self)
-        self.setScene(self.scene)
-
-        # Initialize members
-        self.pixmap_item = None
-        self.selection_rect = None
-        self.zoom_info_item = None
-        self.original_pixmap = None
-        self.is_selecting = False
-        self.selection_mode = False
-        self.selection_start = None
-        self.min_zoom = 0.1
-        self.max_zoom = 4.0
-        self.zoom_sensitivity = 0.1
-        self._panning = False
-        self._last_pan_pos = None
-
-        # Context menu
-        self.context_menu = QMenu(self)
-
-    def set_image(self, image):
-        """Set and display a new image"""
-        self.scene.clear()
-        self.pixmap_item = None
-        self.original_pixmap = None
-
-        if image is None:
-            return
-
-        # Convert to QPixmap based on type
-        if isinstance(image, QPixmap):
-            pixmap = image
-        elif isinstance(image, Image):
-            # Convert PIL Image to QPixmap
-            img = image.convert("RGB")
-            w, h = img.size
-            data = img.tobytes("raw", "RGB")
-            qimg = QImage(data, w, h, QImage.Format_RGB888)
-            pixmap = QPixmap.fromImage(qimg)
-        else:
-            # Assume it's a QImage
-            pixmap = QPixmap.fromImage(image)
-
-        # Store original
-        self.original_pixmap = pixmap
-
-        # Create and add pixmap item
-        self.pixmap_item = QGraphicsPixmapItem(pixmap)
-        self.scene.addItem(self.pixmap_item)
-
-        # Add zoom info item (hidden initially)
-        self.zoom_info_item = self.scene.addText("")
-        self.zoom_info_item.setDefaultTextColor(QColor(255, 255, 255))
-        self.zoom_info_item.setZValue(100)
-        self.zoom_info_item.setVisible(False)
-
-        # Reset view and center
-        self.reset_view()
-
-    def reset_view(self):
-        """Reset view to fit image with proper centering"""
-        if self.pixmap_item:
-            # Clear selection if any
-            self.clear_selection()
-
-            # Reset transform
-            self.resetTransform()
-
-            # Calculate the proper scaling to fit view
-            view_rect = self.viewport().rect()
-            pixmap_rect = self.pixmap_item.boundingRect()
-
-            # Fit contents in view
-            self.fitInView(self.pixmap_item, Qt.KeepAspectRatio)
-
-            # Center the scene
-            self.centerOn(self.pixmap_item)
-
-            # Update scene rect
-            margin = 50  # Extra margin for panning
-            scene_rect = pixmap_rect.adjusted(
-                -margin, -margin, margin, margin
-            )
-            self.scene.setSceneRect(scene_rect)
-
-    def toggle_selection_mode(self, enabled):
-        """Enable/disable selection mode"""
-        self.selection_mode = enabled
-        if not enabled:
-            self.clear_selection()
-        self.setCursor(Qt.CrossCursor if enabled else Qt.ArrowCursor)
-
-    def clear_selection(self):
-        """Clear current selection"""
-        if self.selection_rect:
-            self.scene.removeItem(self.selection_rect)
-            self.selection_rect = None
-            self.selectionCleared.emit()
-
-    def get_selection(self):
-        """Get the current selection in scene coordinates"""
-        if not self.selection_rect:
-            return None
-        rect = self.selection_rect.rect().normalized()
-        return self.selection_rect.mapToScene(rect).boundingRect()
-
-    def get_normalized_selection(self):
-        """Get the selection as normalized coordinates (0-1 range)"""
-        if not self.selection_rect or not self.pixmap_item:
-            return None
-
-        # Get selection in scene coordinates
-        sel_rect = self.get_selection()
-
-        # Get pixmap rect in scene coordinates
-        pixmap_rect = self.pixmap_item.mapToScene(
-            self.pixmap_item.boundingRect()
-        ).boundingRect()
-
-        # Normalize coordinates
-        if not pixmap_rect.isEmpty():
-            x1 = (sel_rect.left() - pixmap_rect.left()) / pixmap_rect.width()
-            y1 = (sel_rect.top() - pixmap_rect.top()) / pixmap_rect.height()
-            x2 = (sel_rect.right() - pixmap_rect.left()) / pixmap_rect.width()
-            y2 = (sel_rect.bottom() - pixmap_rect.top()) / pixmap_rect.height()
-
-            return QRectF(x1, y1, x2 - x1, y2 - y1)
-
-        return None
-
-    def zoom_to_factor(self, factor):
-        """Zoom to specified factor"""
-        # Constrain zoom factor
-        factor = max(self.min_zoom, min(self.max_zoom, factor))
-
-        # Get current transform
-        current_zoom = self.transform().m11()
-
-        # Calculate zoom change
-        zoom_delta = factor / current_zoom
-
-        # Apply zoom
-        self.scale(zoom_delta, zoom_delta)
-
-
-    def zoom_by_delta(self, delta):
-        """Zoom by delta amount"""
-        zoom_factor = 1 + (delta * self.zoom_sensitivity)
-
-        # Get current zoom
-        current_zoom = self.transform().m11()
-
-        # Calculate new zoom
-        new_zoom = current_zoom * zoom_factor
-
-        # Apply constrained zoom
-        self.zoom_to_factor(new_zoom)
-
-    def get_zoom_factor(self):
-        """Get current zoom factor"""
-        return self.transform().m11()
-
-
-    # Event handlers
-    def mousePressEvent(self, event):
-        """Handle mouse press events"""
-        if not self.pixmap_item:
-            return super().mousePressEvent(event)
-
-        # Get scene position
-        scene_pos = self.mapToScene(event.pos())
-
-        # Right click context menu
-        if event.button() == Qt.RightButton and not (event.modifiers() & Qt.ControlModifier):
-            self._show_context_menu(event.pos())
-            return
-
-        # Middle button or Ctrl+Right for panning
-        if (event.button() == Qt.MiddleButton or
-                (event.button() == Qt.RightButton and event.modifiers() & Qt.ControlModifier)):
-            self._panning = True
-            self._last_pan_pos = event.pos()
-            self.setCursor(Qt.OpenHandCursor)
-            return
-
-        # Left click for selection
-        if event.button() == Qt.LeftButton and self.selection_mode:
-            # Check if click is on the image
-            if self.pixmap_item.contains(self.pixmap_item.mapFromScene(scene_pos)):
-                self.is_selecting = True
-                self.selection_start = scene_pos
-
-                # Create new selection rectangle if it doesn't exist
-                if not self.selection_rect:
-                    self.selection_rect = SelectionRect()
-                    self.scene.addItem(self.selection_rect)
-
-                # Initialize with zero rect at start point
-                self.selection_rect.setRect(QRectF(0, 0, 0, 0))
-                self.selection_rect.setPos(scene_pos)
-                return
-
-        # Left click not in selection mode - use for panning
-        if event.button() == Qt.LeftButton and not self.selection_mode:
-            self._panning = True
-            self._last_pan_pos = event.pos()
-            self.setCursor(Qt.ClosedHandCursor)
-            return
-
-        super().mousePressEvent(event)
-
-    def mouseMoveEvent(self, event):
-        """Handle mouse move events"""
-        if not self.pixmap_item:
-            return super().mouseMoveEvent(event)
-
-        # Selection in progress
-        if self.is_selecting and self.selection_rect:
-            scene_pos = self.mapToScene(event.pos())
-
-            # Calculate rectangle from start to current position
-            rect = QRectF(self.selection_start, scene_pos).normalized()
-
-            # Adjust to be relative to the rect's position
-            local_rect = QRectF(
-                0, 0,
-                rect.width(),
-                rect.height()
-            )
-
-            # Position rect and set its bounds
-            self.selection_rect.setRect(local_rect)
-            self.selection_rect.setPos(rect.topLeft())
-            return
-
-        # Panning in progress
-        if self._panning and self._last_pan_pos:
-            # Calculate the delta in view coordinates
-            delta = event.pos() - self._last_pan_pos
-            self._last_pan_pos = event.pos()
-
-            # Use scrolling to implement natural panning
-            self.horizontalScrollBar().setValue(
-                self.horizontalScrollBar().value() - delta.x()
-            )
-            self.verticalScrollBar().setValue(
-                self.verticalScrollBar().value() - delta.y()
-            )
-
-            # Update cursor
-            if event.buttons() & Qt.RightButton and event.modifiers() & Qt.ControlModifier:
-                self.setCursor(Qt.ClosedHandCursor)
-            return
-
-        super().mouseMoveEvent(event)
-
-    def mouseReleaseEvent(self, event):
-        """Handle mouse release events"""
-        # End selection
-        if self.is_selecting and event.button() == Qt.LeftButton:
-            self.is_selecting = False
-            if self.selection_rect and not self.selection_rect.rect().isEmpty():
-                self.selectionChanged.emit(self.get_selection())
-
-        # End panning
-        if self._panning and (event.button() == Qt.MiddleButton or
-                              event.button() == Qt.LeftButton or
-                              (event.button() == Qt.RightButton and event.modifiers() & Qt.ControlModifier)):
-            self._panning = False
-            self.setCursor(Qt.ArrowCursor if not self.selection_mode else Qt.CrossCursor)
-
-        super().mouseReleaseEvent(event)
-
-    def wheelEvent(self, event):
-        """Handle wheel events for zooming"""
-        if not self.pixmap_item:
-            return super().wheelEvent(event)
-
-        # Get zoom direction
-        zoom_in = event.angleDelta().y() > 0
-
-        # Perform zoom
-        self.zoom_by_delta(0.2 if zoom_in else -0.2)
-
-        # Prevent default wheel behavior
-        event.accept()
-
-    def resizeEvent(self, event):
-        """Handle resize events"""
-        super().resizeEvent(event)
-
-        # On first resize after setting image, fit to view
-        if self.pixmap_item and event.oldSize().isEmpty():
-            QTimer.singleShot(0, self.reset_view)
-
-    def _show_context_menu(self, pos):
-        """Show context menu"""
-        self.context_menu.clear()
-
-        # Different options based on selection state
-        if self.selection_rect:
-            self.context_menu.addAction("复制选区", self._copy_selection)
-            self.context_menu.addAction("保存选区", self._save_selection)
-            self.context_menu.addAction("清除选区", self.clear_selection)
-        else:
-            self.context_menu.addAction("全选", self._select_all)
-            self.context_menu.addAction("重置视图", self.reset_view)
-
-        # Common options
-        self.context_menu.addSeparator()
-        self.context_menu.addAction(f"选择模式: {'开' if self.selection_mode else '关'}",
-                                    lambda: self.toggle_selection_mode(not self.selection_mode))
-
-        # Show menu
-        self.context_menu.exec(self.mapToGlobal(pos))
-
-    # Context menu actions
-    def _copy_selection(self):
-        """Copy selection to clipboard"""
-        if not self.selection_rect or not self.original_pixmap:
-            return
-
-        # Get normalized selection
-        norm_rect = self.get_normalized_selection()
-        if not norm_rect:
-            return
-
-        # Extract from original pixmap
-        pixmap_rect = self.original_pixmap.rect()
-        x = int(norm_rect.x() * pixmap_rect.width())
-        y = int(norm_rect.y() * pixmap_rect.height())
-        w = int(norm_rect.width() * pixmap_rect.width())
-        h = int(norm_rect.height() * pixmap_rect.height())
-
-        # Create cropped pixmap
-        cropped = self.original_pixmap.copy(x, y, w, h)
-
-        # Copy to clipboard
-        QApplication.clipboard().setPixmap(cropped)
-
-    def _save_selection(self):
-        """Save selection to file"""
-        # TODO: Implement file save dialog and saving functionality
-        pass
-
-    def _select_all(self):
-        """Select the entire image"""
-        if not self.pixmap_item:
-            return
-
-        # Enable selection mode
-        self.selection_mode = True
-
-        # Create selection rect if needed
-        if not self.selection_rect:
-            self.selection_rect = SelectionRect()
-            self.scene.addItem(self.selection_rect)
-
-        # Set to full image bounds
-        self.selection_rect.setRect(QRectF(self.pixmap_item.boundingRect()))
-        self.selection_rect.setPos(self.pixmap_item.pos())
-
-        # Emit signal
-        self.selectionChanged.emit(self.get_selection())
+from src.views.components.deviceImage_view import DeviceImageView
 
 
 class DeviceSearchThread(QThread):
@@ -677,31 +192,33 @@ class ControllerView(QWidget):
         self.connection_status.setStyleSheet("color: red; font-weight: bold;")
         toolbar_layout.addWidget(self.connection_status)
 
-        # 工具栏
-        toolbar = QToolBar()
-        toolbar_layout.addWidget(toolbar)
+        # 截图按钮 - 直接加入工具栏布局
+        self.screenshot_btn = QPushButton("截图")
+        self.screenshot_btn.clicked.connect(self.update_device_img)
+        toolbar_layout.addWidget(self.screenshot_btn)
 
-        # 截图按钮
-        self.screenshot_action = toolbar.addAction("截图")
-        self.screenshot_action.triggered.connect(self.update_device_img)
+        # 选择区域按钮 - 直接加入工具栏布局
+        self.select_area_btn = QPushButton("选择区域:关")
+        self.select_area_btn.clicked.connect(self.toggle_selection_mode)
+        toolbar_layout.addWidget(self.select_area_btn)
 
-        # 选择区域按钮
-        self.select_area_action = toolbar.addAction("选择区域:关")
-        self.select_area_action.triggered.connect(self.toggle_selection_mode)
-
-        right_layout.addLayout(toolbar_layout)
-
-        # 重置视图按钮
-        zoom_layout = QHBoxLayout()
-        zoom_layout.setContentsMargins(0, 0, 0, 0)
-        zoom_layout.setSpacing(10)
-
+        # 重置视图按钮 - 直接加入工具栏布局
         self.reset_view_btn = QPushButton("重置视图")
         self.reset_view_btn.clicked.connect(self.reset_view)
-        zoom_layout.addStretch()
-        zoom_layout.addWidget(self.reset_view_btn)
+        toolbar_layout.addWidget(self.reset_view_btn)
 
-        right_layout.addLayout(zoom_layout)
+        # 添加弹性空间，将后面的标签推到最右侧
+        toolbar_layout.addStretch()
+
+        # 添加选中节点标签
+        self.selected_node_label = QLabel("选中节点: 未选择")
+        toolbar_layout.addWidget(self.selected_node_label)
+
+        # 添加打卡文件标签
+        self.task_file_label = QLabel("打卡文件: 未选择")
+        toolbar_layout.addWidget(self.task_file_label)
+
+        right_layout.addLayout(toolbar_layout)
 
         # 创建并添加设备图像视图
         self.device_view = DeviceImageView()
@@ -851,9 +368,8 @@ class ControllerView(QWidget):
     def toggle_selection_mode(self):
         """切换选择区域模式"""
         self.selection_mode = not self.selection_mode
-        self.select_area_action.setText(f"选择区域:{'开' if self.selection_mode else '关'}")
+        self.select_area_btn.setText(f"选择区域:{'开' if self.selection_mode else '关'}")
         self.device_view.toggle_selection_mode(self.selection_mode)
-
     @asyncSlot()
     async def update_device_img(self):
         """更新设备截图"""
@@ -876,7 +392,22 @@ class ControllerView(QWidget):
         """当选择区域变化时"""
         # 可以在这里处理选择区域变化事件
         pass
+
     def on_selection_cleared(self):
         """当选择区域被清除时"""
         # 可以在这里处理选择区域清除事件
         pass
+
+    def update_selected_node(self, node_name):
+        """更新已选中节点的标签"""
+        if not node_name:
+            self.selected_node_label.setText("选中节点: 未选择")
+        else:
+            self.selected_node_label.setText(f"选中节点: {node_name}")
+
+    def update_task_file(self, file_name):
+        """更新打卡文件的标签"""
+        if not file_name:
+            self.task_file_label.setText("打卡文件: 未选择")
+        else:
+            self.task_file_label.setText(f"打卡文件: {file_name}")

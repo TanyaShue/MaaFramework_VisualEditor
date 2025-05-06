@@ -1,9 +1,9 @@
+import hashlib  # 用于MD5哈希计算
 import os
 
 from PySide6.QtCore import QRectF, Qt, QPointF, Signal, QObject
 from PySide6.QtGui import QPainter, QFont, QColor, QPen, QBrush, QPainterPath, QPixmap
 from PySide6.QtWidgets import QGraphicsItem
-import hashlib  # 用于MD5哈希计算
 
 from src.config_manager import config_manager
 from src.node_system.port import InputPort, OutputPort

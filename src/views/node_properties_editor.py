@@ -1,6 +1,6 @@
 import json
 
-from PySide6.QtCore import Qt, Signal, QTimer
+from PySide6.QtCore import Signal, QTimer
 from PySide6.QtGui import QTextCursor, QFont
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QLabel, QFormLayout,
                                QLineEdit, QSpinBox, QPushButton, QCheckBox,
