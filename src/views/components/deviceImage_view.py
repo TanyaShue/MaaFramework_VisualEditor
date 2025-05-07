@@ -16,6 +16,8 @@ class SelectionRect(QGraphicsRectItem):
         self.setBrush(QBrush(QColor(255, 0, 0, 40)))
         self.setZValue(100)  # Ensure it's on top
         self.setFlag(QGraphicsItem.ItemIsMovable, False)
+        # Add a flag to check if the object is valid
+        self.is_valid = True
 
     def paint(self, painter, option, widget):
         """Customize the paint to add info overlay"""
@@ -147,6 +149,7 @@ class DeviceImageView(QGraphicsView):
         self.scene.clear()
         self.pixmap_item = None
         self.original_pixmap = None
+        self.selection_rect = None  # Reset selection rect when changing image
 
         if image is None:
             return
@@ -217,38 +220,69 @@ class DeviceImageView(QGraphicsView):
     def clear_selection(self):
         """Clear current selection"""
         if self.selection_rect:
-            self.scene.removeItem(self.selection_rect)
+            try:
+                # Check if the object is still valid before attempting to remove it
+                if hasattr(self.selection_rect, 'scene') and self.selection_rect.scene():
+                    self.scene.removeItem(self.selection_rect)
+            except RuntimeError:
+                # The object may have been deleted already
+                pass
+            finally:
+                self.selection_rect = None
+                self.selectionCleared.emit()
+
+    def is_selection_valid(self):
+        """Check if the selection rectangle is still valid"""
+        if not self.selection_rect:
+            return False
+        try:
+            # Try to access a property to see if the object is valid
+            _ = self.selection_rect.rect()
+            return True
+        except (RuntimeError, AttributeError):
+            # Object has been deleted or is invalid
             self.selection_rect = None
-            self.selectionCleared.emit()
+            return False
 
     def get_selection(self):
         """Get the current selection in scene coordinates"""
-        if not self.selection_rect:
+        if not self.is_selection_valid():
             return None
-        rect = self.selection_rect.rect().normalized()
-        return self.selection_rect.mapToScene(rect).boundingRect()
+        try:
+            rect = self.selection_rect.rect().normalized()
+            return self.selection_rect.mapToScene(rect).boundingRect()
+        except (RuntimeError, AttributeError):
+            # Handle potential errors if the object becomes invalid
+            self.selection_rect = None
+            return None
 
     def get_normalized_selection(self):
         """Get the selection as normalized coordinates (0-1 range)"""
-        if not self.selection_rect or not self.pixmap_item:
+        if not self.is_selection_valid() or not self.pixmap_item:
             return None
 
-        # Get selection in scene coordinates
-        sel_rect = self.get_selection()
+        try:
+            # Get selection in scene coordinates
+            sel_rect = self.get_selection()
+            if not sel_rect:
+                return None
 
-        # Get pixmap rect in scene coordinates
-        pixmap_rect = self.pixmap_item.mapToScene(
-            self.pixmap_item.boundingRect()
-        ).boundingRect()
+            # Get pixmap rect in scene coordinates
+            pixmap_rect = self.pixmap_item.mapToScene(
+                self.pixmap_item.boundingRect()
+            ).boundingRect()
 
-        # Normalize coordinates
-        if not pixmap_rect.isEmpty():
-            x1 = (sel_rect.left() - pixmap_rect.left()) / pixmap_rect.width()
-            y1 = (sel_rect.top() - pixmap_rect.top()) / pixmap_rect.height()
-            x2 = (sel_rect.right() - pixmap_rect.left()) / pixmap_rect.width()
-            y2 = (sel_rect.bottom() - pixmap_rect.top()) / pixmap_rect.height()
+            # Normalize coordinates
+            if not pixmap_rect.isEmpty():
+                x1 = (sel_rect.left() - pixmap_rect.left()) / pixmap_rect.width()
+                y1 = (sel_rect.top() - pixmap_rect.top()) / pixmap_rect.height()
+                x2 = (sel_rect.right() - pixmap_rect.left()) / pixmap_rect.width()
+                y2 = (sel_rect.bottom() - pixmap_rect.top()) / pixmap_rect.height()
 
-            return QRectF(x1, y1, x2 - x1, y2 - y1)
+                return QRectF(x1, y1, x2 - x1, y2 - y1)
+        except (RuntimeError, AttributeError):
+            # Handle potential errors if objects become invalid
+            self.selection_rect = None
 
         return None
 
@@ -257,16 +291,20 @@ class DeviceImageView(QGraphicsView):
         if not self.pixmap_item:
             return scene_pos
 
-        # 获取图片在场景中的边界
-        pixmap_rect = self.pixmap_item.mapToScene(
-            self.pixmap_item.boundingRect()
-        ).boundingRect()
+        try:
+            # 获取图片在场景中的边界
+            pixmap_rect = self.pixmap_item.mapToScene(
+                self.pixmap_item.boundingRect()
+            ).boundingRect()
 
-        # 限制坐标到图片边界
-        constrained_x = max(pixmap_rect.left(), min(scene_pos.x(), pixmap_rect.right()))
-        constrained_y = max(pixmap_rect.top(), min(scene_pos.y(), pixmap_rect.bottom()))
+            # 限制坐标到图片边界
+            constrained_x = max(pixmap_rect.left(), min(scene_pos.x(), pixmap_rect.right()))
+            constrained_y = max(pixmap_rect.top(), min(scene_pos.y(), pixmap_rect.bottom()))
 
-        return QPointF(constrained_x, constrained_y)
+            return QPointF(constrained_x, constrained_y)
+        except (RuntimeError, AttributeError):
+            # If there's an error, return the original position
+            return scene_pos
 
     def zoom_to_factor(self, factor):
         """Zoom to specified factor"""
@@ -324,23 +362,30 @@ class DeviceImageView(QGraphicsView):
         # Left click for selection
         if event.button() == Qt.LeftButton and self.selection_mode:
             # 确保点击位置在图片内
-            pixmap_scene_pos = self.pixmap_item.mapToScene(
-                self.pixmap_item.boundingRect()
-            ).boundingRect()
+            try:
+                pixmap_scene_pos = self.pixmap_item.mapToScene(
+                    self.pixmap_item.boundingRect()
+                ).boundingRect()
 
-            if pixmap_scene_pos.contains(scene_pos):
-                self.is_selecting = True
-                self.selection_start = scene_pos
+                if pixmap_scene_pos.contains(scene_pos):
+                    # Clear any existing selection first
+                    self.clear_selection()
 
-                # Create new selection rectangle if it doesn't exist
-                if not self.selection_rect:
+                    self.is_selecting = True
+                    self.selection_start = scene_pos
+
+                    # Create new selection rectangle
                     self.selection_rect = SelectionRect()
                     self.scene.addItem(self.selection_rect)
 
-                # Initialize with zero rect at start point
-                self.selection_rect.setRect(QRectF(0, 0, 0, 0))
-                self.selection_rect.setPos(scene_pos)
-                return
+                    # Initialize with zero rect at start point
+                    self.selection_rect.setRect(QRectF(0, 0, 0, 0))
+                    self.selection_rect.setPos(scene_pos)
+                    return
+            except (RuntimeError, AttributeError):
+                # Handle potential errors
+                self.pixmap_item = None
+                return super().mousePressEvent(event)
 
         # Left click not in selection mode - use for panning
         if event.button() == Qt.LeftButton and not self.selection_mode:
@@ -357,46 +402,55 @@ class DeviceImageView(QGraphicsView):
             return super().mouseMoveEvent(event)
 
         # Selection in progress
-        if self.is_selecting and self.selection_rect:
-            # 获取当前鼠标位置对应的场景坐标
-            current_scene_pos = self.mapToScene(event.pos())
+        if self.is_selecting and self.is_selection_valid():
+            try:
+                # 获取当前鼠标位置对应的场景坐标
+                current_scene_pos = self.mapToScene(event.pos())
 
-            # 限制当前坐标在图片范围内
-            constrained_pos = self.constrain_to_pixmap(current_scene_pos)
+                # 限制当前坐标在图片范围内
+                constrained_pos = self.constrain_to_pixmap(current_scene_pos)
 
-            # 计算从起始点到当前位置的矩形
-            rect = QRectF(self.selection_start, constrained_pos).normalized()
+                # 计算从起始点到当前位置的矩形
+                rect = QRectF(self.selection_start, constrained_pos).normalized()
 
-            # 调整为相对于rect位置的坐标
-            local_rect = QRectF(
-                0, 0,
-                rect.width(),
-                rect.height()
-            )
+                # 调整为相对于rect位置的坐标
+                local_rect = QRectF(
+                    0, 0,
+                    rect.width(),
+                    rect.height()
+                )
 
-            # 设置矩形位置和大小
-            self.selection_rect.setRect(local_rect)
-            self.selection_rect.setPos(rect.topLeft())
-            return
+                # 设置矩形位置和大小
+                self.selection_rect.setRect(local_rect)
+                self.selection_rect.setPos(rect.topLeft())
+                return
+            except (RuntimeError, AttributeError):
+                # Selection rect may have been deleted
+                self.is_selecting = False
+                self.selection_rect = None
 
         # Panning in progress
         if self._panning and self._last_pan_pos:
-            # Calculate the delta in view coordinates
-            delta = event.pos() - self._last_pan_pos
-            self._last_pan_pos = event.pos()
+            try:
+                # Calculate the delta in view coordinates
+                delta = event.pos() - self._last_pan_pos
+                self._last_pan_pos = event.pos()
 
-            # Use scrolling to implement natural panning
-            self.horizontalScrollBar().setValue(
-                self.horizontalScrollBar().value() - delta.x()
-            )
-            self.verticalScrollBar().setValue(
-                self.verticalScrollBar().value() - delta.y()
-            )
+                # Use scrolling to implement natural panning
+                self.horizontalScrollBar().setValue(
+                    self.horizontalScrollBar().value() - delta.x()
+                )
+                self.verticalScrollBar().setValue(
+                    self.verticalScrollBar().value() - delta.y()
+                )
 
-            # Update cursor
-            if event.buttons() & Qt.RightButton and event.modifiers() & Qt.ControlModifier:
-                self.setCursor(Qt.ClosedHandCursor)
-            return
+                # Update cursor
+                if event.buttons() & Qt.RightButton and event.modifiers() & Qt.ControlModifier:
+                    self.setCursor(Qt.ClosedHandCursor)
+                return
+            except (RuntimeError, AttributeError):
+                # Handle potential errors
+                self._panning = False
 
         super().mouseMoveEvent(event)
 
@@ -405,8 +459,17 @@ class DeviceImageView(QGraphicsView):
         # End selection
         if self.is_selecting and event.button() == Qt.LeftButton:
             self.is_selecting = False
-            if self.selection_rect and not self.selection_rect.rect().isEmpty():
-                self.selectionChanged.emit(self.get_selection())
+
+            # Check if selection rect is valid before accessing
+            if self.is_selection_valid():
+                try:
+                    if not self.selection_rect.rect().isEmpty():
+                        selection = self.get_selection()
+                        if selection:
+                            self.selectionChanged.emit(selection)
+                except (RuntimeError, AttributeError):
+                    # Handle potential errors
+                    self.selection_rect = None
 
         # End panning
         if self._panning and (event.button() == Qt.MiddleButton or
@@ -448,7 +511,7 @@ class DeviceImageView(QGraphicsView):
         self.context_menu.clear()
 
         # Different options based on selection state
-        if self.selection_rect:
+        if self.is_selection_valid():
             self.context_menu.addAction("复制选区", self._copy_selection)
             self.context_menu.addAction("保存选区", self._save_selection)
             self.context_menu.addAction("清除选区", self.clear_selection)
@@ -465,7 +528,11 @@ class DeviceImageView(QGraphicsView):
         self.context_menu.addSeparator()
         zoom_menu = self.context_menu.addMenu("缩放")
         for zoom in [25, 50, 75, 100, 125, 150, 200, 300]:
-            zoom_menu.addAction(f"{zoom}%", lambda z=zoom / 100: self.zoom_to_factor(z))
+            # Create a lambda that captures the value properly
+            action = zoom_menu.addAction(f"{zoom}%")
+            # Use a separate function to avoid lambda capture issues
+            zoom_value = zoom / 100  # Calculate the zoom value
+            action.triggered.connect(lambda checked=False, z=zoom_value: self.zoom_to_factor(z))
 
         # Show menu
         self.context_menu.exec(self.mapToGlobal(pos))
@@ -473,48 +540,169 @@ class DeviceImageView(QGraphicsView):
     # Context menu actions
     def _copy_selection(self):
         """Copy selection to clipboard"""
-        if not self.selection_rect or not self.original_pixmap:
+        if not self.is_selection_valid() or not self.original_pixmap:
             return
 
-        # Get normalized selection
-        norm_rect = self.get_normalized_selection()
-        if not norm_rect:
-            return
+        try:
+            # Get normalized selection
+            norm_rect = self.get_normalized_selection()
+            if not norm_rect:
+                return
 
-        # Extract from original pixmap
-        pixmap_rect = self.original_pixmap.rect()
-        x = int(norm_rect.x() * pixmap_rect.width())
-        y = int(norm_rect.y() * pixmap_rect.height())
-        w = int(norm_rect.width() * pixmap_rect.width())
-        h = int(norm_rect.height() * pixmap_rect.height())
+            # Extract from original pixmap
+            pixmap_rect = self.original_pixmap.rect()
+            x = int(norm_rect.x() * pixmap_rect.width())
+            y = int(norm_rect.y() * pixmap_rect.height())
+            w = int(norm_rect.width() * pixmap_rect.width())
+            h = int(norm_rect.height() * pixmap_rect.height())
 
-        # Create cropped pixmap
-        cropped = self.original_pixmap.copy(x, y, w, h)
+            # Create cropped pixmap
+            cropped = self.original_pixmap.copy(x, y, w, h)
 
-        # Copy to clipboard
-        QApplication.clipboard().setPixmap(cropped)
+            # Copy to clipboard
+            QApplication.clipboard().setPixmap(cropped)
+        except (RuntimeError, AttributeError):
+            # Handle potential errors
+            pass
 
     def _save_selection(self):
         """Save selection to file"""
-        # TODO: Implement file save dialog and saving functionality
-        pass
+        if not self.is_selection_valid() or not self.original_pixmap:
+            return
+
+        try:
+            # Get normalized selection
+            norm_rect = self.get_normalized_selection()
+            if not norm_rect:
+                return
+
+            # Extract from original pixmap
+            pixmap_rect = self.original_pixmap.rect()
+            x = int(norm_rect.x() * pixmap_rect.width())
+            y = int(norm_rect.y() * pixmap_rect.height())
+            w = int(norm_rect.width() * pixmap_rect.width())
+            h = int(norm_rect.height() * pixmap_rect.height())
+
+            # Create cropped pixmap
+            cropped = self.original_pixmap.copy(x, y, w, h)
+
+            # Generate filename based on priority:
+            # 1. Selected node name (if available)
+            # 2. Current task file name (if available)
+            # 3. Current timestamp
+
+            # Find the parent ControllerView to access node and file information
+            from datetime import datetime
+            import os
+
+            parent = self
+            controller = None
+
+            # Navigate up the widget hierarchy to find the ControllerView
+            while parent:
+                if hasattr(parent, 'selected_node_label') and hasattr(parent, 'task_file_label'):
+                    controller = parent
+                    break
+                parent = parent.parent()
+
+            # Helper function to check if a file exists and create unique name
+            def get_unique_filename(base_name, ext='.png'):
+                """Get a unique filename by adding numeric suffix if needed"""
+                # Get current directory
+                current_dir = os.getcwd()
+
+                # Check if file exists
+                file_path = os.path.join(current_dir, f"{base_name}{ext}")
+                if not os.path.exists(file_path):
+                    return f"{base_name}{ext}"
+
+                # If exists, try with numeric suffixes
+                counter = 1
+                while True:
+                    new_filename = f"{base_name}_{counter}{ext}"
+                    file_path = os.path.join(current_dir, new_filename)
+                    if not os.path.exists(file_path):
+                        return new_filename
+                    counter += 1
+
+            # Determine base filename (without numeric suffix)
+            base_filename = None
+
+            if controller:
+                # Check if there's a selected node
+                node_text = controller.selected_node_label.text()
+                if "未选择" not in node_text:
+                    # Extract node name from "选中节点: [node_name]"
+                    node_name = node_text.split(": ", 1)[1] if ": " in node_text else None
+                    if node_name:
+                        base_filename = node_name
+
+                # If no node name, try using task filename
+                if not base_filename:
+                    file_text = controller.task_file_label.text()
+                    if "未选择" not in file_text:
+                        # Extract file name from "打开文件: [filename]"
+                        file_name = file_text.split(": ", 1)[1] if ": " in file_text else None
+                        if file_name:
+                            # Remove extension if present
+                            base_filename = os.path.splitext(file_name)[0] + "_selection"
+
+            # Fall back to timestamp if no other name is available
+            if not base_filename:
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                base_filename = f"selection_{timestamp}"
+
+            # Get unique filename with numeric suffix if needed
+            filename = get_unique_filename(base_filename)
+
+            # Save to program directory (current working directory)
+            current_dir = os.getcwd()
+            save_path = os.path.join(current_dir, filename)
+
+            try:
+                cropped.save(save_path)
+                # If we had access to a status bar or notification system, we could show a message here
+                print(f"Selection saved to {save_path}")
+            except Exception as e:
+                print(f"Error saving selection: {e}")
+
+                # Try saving to user's home directory as fallback
+                try:
+                    import pathlib
+                    home_dir = str(pathlib.Path.home())
+                    save_path = os.path.join(home_dir, filename)
+                    cropped.save(save_path)
+                    print(f"Selection saved to fallback location: {save_path}")
+                except Exception as e2:
+                    print(f"Error saving to fallback location: {e2}")
+        except (RuntimeError, AttributeError):
+            # Handle potential errors
+            pass
 
     def _select_all(self):
         """Select the entire image"""
         if not self.pixmap_item:
             return
 
-        # Enable selection mode
-        self.selection_mode = True
+        try:
+            # Enable selection mode
+            self.selection_mode = True
 
-        # Create selection rect if needed
-        if not self.selection_rect:
+            # Clear any existing selection first
+            self.clear_selection()
+
+            # Create new selection rectangle
             self.selection_rect = SelectionRect()
             self.scene.addItem(self.selection_rect)
 
-        # Set to full image bounds
-        self.selection_rect.setRect(QRectF(self.pixmap_item.boundingRect()))
-        self.selection_rect.setPos(self.pixmap_item.pos())
+            # Set to full image bounds
+            self.selection_rect.setRect(QRectF(self.pixmap_item.boundingRect()))
+            self.selection_rect.setPos(self.pixmap_item.pos())
 
-        # Emit signal
-        self.selectionChanged.emit(self.get_selection())
+            # Emit signal
+            selection = self.get_selection()
+            if selection:
+                self.selectionChanged.emit(selection)
+        except (RuntimeError, AttributeError):
+            # Handle potential errors
+            self.selection_rect = None

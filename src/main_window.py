@@ -9,7 +9,6 @@ from PySide6.QtWidgets import (QMainWindow, QDockWidget, QStatusBar, QToolBar,
 from src.pipeline import open_pipeline
 from src.views.infinite_canvas import EnhancedInfiniteCanvas
 from src.views.node_library import NodeLibrary
-# 导入增强的InfiniteCanvas而不是原始版本
 from src.views.node_properties_editor import NodePropertiesEditor
 from .canvas_commands import ConnectNodesCommand
 from .config_manager import config_manager
@@ -385,8 +384,8 @@ class MainWindow(QMainWindow):
         if hasattr(self.property_editor, 'properties_changed'):
             self.property_editor.properties_changed.connect(self.on_properties_changed)
         # 连接节点选择变化信号到属性编辑器
-        # self.canvas.scene.selectionChanged.connect(self.update_property_editor)
         self.canvas.node_manager.OpenNodeChanged.connect(self.update_property_editor)
+        self.canvas.node_manager.OpenNodeChanged.connect(self.controller_view.update_selected_node)
 
 
     def update_property_editor(self):
@@ -414,6 +413,7 @@ class MainWindow(QMainWindow):
     def on_resource_opened(self, file_path):
         """处理资源文件打开事件"""
         self.status_label.setText(f"已打开资源: {file_path}")
+        self.controller_view.update_task_file(file_path)
 
         try:
             # 从文件加载流水线

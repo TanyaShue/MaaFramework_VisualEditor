@@ -35,7 +35,6 @@ class ConfigManager:
         # 如果存在，加载已有配置
         self._load_config()
 
-
     def _get_default_config(self):
         """返回默认配置值。"""
         return {
@@ -64,7 +63,11 @@ class ConfigManager:
             },
             "controller": {
                 "device_type": "ADB",
-                "device_address": "127.0.0.1:5555",
+                "adb_address": "127.0.0.1:5555",
+                "hwnd": "",
+                "adb_path":"",
+                "input_method": 1,
+                "screenshot_method": 1,
                 "connected": False
             },
             "autosave": {
@@ -159,25 +162,30 @@ class ConfigManager:
 
     def save_canvas_state(self, canvas):
         """保存画布状态，包括缩放、位置、节点和连接。"""
-        # 获取画布的完整状态
-        if hasattr(canvas, 'get_state'):
-            canvas_state = canvas.get_state()
+        try:
+            # 获取画布的完整状态
+            if hasattr(canvas, 'get_state'):
+                canvas_state = canvas.get_state()
 
-            # 更新配置中的画布状态
-            self.config["canvas"]["zoom"] = canvas_state["transform"]["scale_x"]
-            self.config["canvas"]["position"] = [
-                canvas_state["center"]["x"],
-                canvas_state["center"]["y"]
-            ]
+                # 更新配置中的画布状态
+                self.config["canvas"]["zoom"] = canvas_state["transform"]["scale_x"]
+                self.config["canvas"]["position"] = [
+                    canvas_state["center"]["x"],
+                    canvas_state["center"]["y"]
+                ]
 
-            # 保存节点和连接信息
-            self.config["canvas"]["nodes"] = canvas_state["nodes"]
-            self.config["canvas"]["connections"] = canvas_state["connections"]
-        else:
-            # 如果画布没有get_state方法，退回到基本状态保存
-            self.config["canvas"]["zoom"] = canvas.view.transform().m11()
-            center = canvas.view.mapToScene(canvas.view.viewport().rect().center())
-            self.config["canvas"]["position"] = [center.x(), center.y()]
+                # 保存节点和连接信息
+                self.config["canvas"]["nodes"] = canvas_state["nodes"]
+                self.config["canvas"]["connections"] = canvas_state["connections"]
+            else:
+                # 如果画布没有get_state方法，退回到基本状态保存
+                self.config["canvas"]["zoom"] = canvas.view.transform().m11()
+                center = canvas.view.mapToScene(canvas.view.viewport().rect().center())
+                self.config["canvas"]["position"] = [center.x(), center.y()]
+        except Exception as e:
+            print(f"保存画布状态时出错: {str(e)}")
+            import traceback
+            print(traceback.format_exc())
 
         self.save_config()
 
@@ -236,30 +244,78 @@ class ConfigManager:
 
     def save_controller_state(self, controller_view):
         """保存控制器视图状态。"""
-        self.config["controller"]["device_type"] = controller_view.device_combo.currentText()
-        self.config["controller"]["device_address"] = controller_view.address_input.text()
-        # 需要在ControllerView中添加connected标志
-        if hasattr(controller_view, 'is_connected'):
-            self.config["controller"]["connected"] = controller_view.is_connected
-        self.save_config()
+        try:
+            # 保存设备类型
+            device_type = controller_view.device_type_combo.currentData() if hasattr(controller_view,
+                                                                                     'device_type_combo') else "ADB"
+            self.config["controller"]["device_type"] = device_type
+
+            # 根据设备类型保存不同的地址信息
+            if device_type == "ADB" and hasattr(controller_view, 'adb_address_edit') and hasattr(controller_view,"adb_path_edit"):
+                self.config["controller"]["adb_address"] = controller_view.adb_address_edit.text()
+                self.config["controller"]["adb_path"] = controller_view.adb_path_edit.text()
+            elif device_type == "WIN32" and hasattr(controller_view, 'hwnd_edit'):
+                self.config["controller"]["hwnd"] = controller_view.hwnd_edit.text()
+
+                # 保存Win32特有的配置
+                if hasattr(controller_view, 'input_method_combo'):
+                    self.config["controller"]["input_method"] = controller_view.input_method_combo.currentData()
+                if hasattr(controller_view, 'screenshot_method_combo'):
+                    self.config["controller"][
+                        "screenshot_method"] = controller_view.screenshot_method_combo.currentData()
+
+            # 保存连接状态
+            if hasattr(controller_view, 'is_connected'):
+                self.config["controller"]["connected"] = controller_view.is_connected
+
+            self.save_config()
+        except Exception as e:
+            print(f"保存控制器状态时出错: {str(e)}")
+            import traceback
+            print(traceback.format_exc())
 
     def restore_controller_state(self, controller_view):
         """恢复控制器视图状态。"""
         try:
             # 设置设备类型
-            index = controller_view.device_combo.findText(self.config["controller"]["device_type"])
-            if index >= 0:
-                controller_view.device_combo.setCurrentIndex(index)
+            if hasattr(controller_view, 'device_type_combo'):
+                device_type = self.config["controller"]["device_type"]
+                for i in range(controller_view.device_type_combo.count()):
+                    if controller_view.device_type_combo.itemData(i) == device_type:
+                        controller_view.device_type_combo.setCurrentIndex(i)
+                        break
 
-            # 设置设备地址
-            controller_view.address_input.setText(self.config["controller"]["device_address"])
+            # 根据设备类型设置相应的地址信息
+            device_type = self.config["controller"]["device_type"]
+            if device_type == "ADB" and hasattr(controller_view, 'adb_address_edit'):
+                controller_view.adb_address_edit.setText(self.config["controller"]["adb_address"])
+                controller_view.adb_path_edit.setText(str(self.config["controller"]["adb_path"]))
+            elif device_type == "WIN32" and hasattr(controller_view, 'hwnd_edit'):
+                controller_view.hwnd_edit.setText(self.config["controller"]["hwnd"])
+
+                # 设置Win32特有的配置
+                if hasattr(controller_view, 'input_method_combo'):
+                    input_method = self.config["controller"]["input_method"]
+                    for i in range(controller_view.input_method_combo.count()):
+                        if controller_view.input_method_combo.itemData(i) == input_method:
+                            controller_view.input_method_combo.setCurrentIndex(i)
+                            break
+
+                if hasattr(controller_view, 'screenshot_method_combo'):
+                    screenshot_method = self.config["controller"]["screenshot_method"]
+                    for i in range(controller_view.screenshot_method_combo.count()):
+                        if controller_view.screenshot_method_combo.itemData(i) == screenshot_method:
+                            controller_view.screenshot_method_combo.setCurrentIndex(i)
+                            break
 
             # 如果需要，重新连接
-            if hasattr(controller_view, 'is_connected') and self.config["controller"]["connected"]:
-                if hasattr(controller_view, 'connect_device'):
-                    controller_view.connect_device()
+            if (hasattr(controller_view, 'is_connected') and
+                    self.config["controller"]["connected"] and
+                    hasattr(controller_view, 'connect_device')):
+                controller_view.connect_device()
 
         except Exception as e:
+            print(e)
             print(f"恢复控制器状态时出错: {str(e)}")
             import traceback
             print(traceback.format_exc())
@@ -274,4 +330,5 @@ class ConfigManager:
         """获取上次打开的项目文件路径。"""
         return self.config["recent_files"]["project"]
 
-config_manager=ConfigManager()
+
+config_manager = ConfigManager()

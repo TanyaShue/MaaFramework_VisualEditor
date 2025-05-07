@@ -1,3 +1,5 @@
+import os
+
 from PySide6.QtCore import Qt, Signal, QThread
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                                QFormLayout, QLineEdit, QPushButton, QComboBox,
@@ -214,8 +216,8 @@ class ControllerView(QWidget):
         self.selected_node_label = QLabel("选中节点: 未选择")
         toolbar_layout.addWidget(self.selected_node_label)
 
-        # 添加打卡文件标签
-        self.task_file_label = QLabel("打卡文件: 未选择")
+        # 打开文件
+        self.task_file_label = QLabel("打开文件: 未选择")
         toolbar_layout.addWidget(self.task_file_label)
 
         right_layout.addLayout(toolbar_layout)
@@ -398,16 +400,18 @@ class ControllerView(QWidget):
         # 可以在这里处理选择区域清除事件
         pass
 
-    def update_selected_node(self, node_name):
+    def update_selected_node(self, node):
         """更新已选中节点的标签"""
-        if not node_name:
+        if not node:
             self.selected_node_label.setText("选中节点: 未选择")
         else:
-            self.selected_node_label.setText(f"选中节点: {node_name}")
+            self.selected_node_label.setText(f"选中节点: {node[0].task_node.name}")
 
-    def update_task_file(self, file_name):
-        """更新打卡文件的标签"""
-        if not file_name:
-            self.task_file_label.setText("打卡文件: 未选择")
+    def update_task_file(self, file_path):
+        """更新打开文件的标签，只显示文件名"""
+        if not file_path:
+            self.task_file_label.setText("打开文件: 未选择")
         else:
-            self.task_file_label.setText(f"打卡文件: {file_name}")
+            # 提取文件路径中的文件名部分
+            file_name = os.path.basename(file_path)
+            self.task_file_label.setText(f"打开文件: {file_name}")
