@@ -1,7 +1,8 @@
-from PySide6.QtCore import Signal, QObject
+from PySide6.QtCore import Signal, QObject, QPointF
 from PySide6.QtGui import QColor, Qt, QPen
 
 from src.node_system.node import Node
+from src.node_system.nodes.unknow_node import UnknownNode
 from src.pipeline import TaskNode, open_pipeline
 
 
@@ -41,7 +42,6 @@ class CanvasNodeManager(QObject):
         """
         # 清除当前节点
         self.clear()
-
         try:
             # 使用Pipeline加载文件
             self.pipeline = self.pipeline.__class__.load_from_file(file_path)
@@ -55,6 +55,7 @@ class CanvasNodeManager(QObject):
                 self.add_node(node)
                 node_map[name] = node
 
+            self._layout_nodes(self.pipeline, node_map)
             # 创建节点间的连接
             self._create_connections_from_tasks(node_map)
 
@@ -135,6 +136,33 @@ class CanvasNodeManager(QObject):
             self.pipeline.add_node(task_node)
 
         return node
+
+    def create_unknown_node(self, id=None, title="Unknown Node", position=None):
+        """
+        创建一个未知节点
+
+        参数:
+            id: 节点ID，如果为None则自动生成
+            title: 节点标题
+            position: 节点位置
+
+        返回:
+            创建的未知节点
+        """
+
+        # 如果没有提供ID，生成一个唯一ID
+        if id is None:
+            id = f"UNK_{len(self.nodes):03d}"
+
+        # 创建未知节点
+        unknown_node = UnknownNode(id=id, title=title)
+
+        # 设置位置（如果提供）
+        if position:
+            unknown_node.setPos(position)
+
+        # 添加到画布并返回
+        return self.add_node(unknown_node)
 
     def remove_node(self, node):
         """
@@ -399,7 +427,6 @@ class CanvasNodeManager(QObject):
         self.scene.clearSelection()
         self.update_from_scene_selection()
 
-    # 新增的方法用于与Pipeline交互
     def _create_visual_node_from_task(self, task_node):
         """
         从TaskNode创建可视化节点
@@ -410,29 +437,18 @@ class CanvasNodeManager(QObject):
         返回:
             创建的可视化Node实例
         """
-        # 假设Node类的构造函数支持id和title参数
         node = Node(
             id=task_node.name,
             title=task_node.name
         )
 
-        # 存储任务节点数据，便于后续同步
-        node.task_data = task_node.to_dict()
-
-        # 可以根据任务节点类型设置不同的外观
-        if hasattr(task_node, 'recognition'):
-            # 可以根据不同算法类型设置不同的外观
-            pass
-
-        if hasattr(task_node, 'action'):
-            # 可以根据不同动作类型设置不同的外观
-            pass
+        node.set_task_node(task_node)
 
         return node
 
     def _create_connections_from_tasks(self, node_map):
         """
-        根据Pipeline中的任务节点关系创建可视化连接
+        根据Pipeline中的任务节点关系创建可视化连接，处理所有类型的连接
 
         参数:
             node_map: 从任务节点名称到可视化节点的映射
@@ -444,36 +460,197 @@ class CanvasNodeManager(QObject):
 
             source_node = node_map[name]
 
-            # 处理next连接
-            next_nodes = []
-            if isinstance(task_node.next, list):
-                next_nodes = task_node.next
-            elif task_node.next:
-                next_nodes = [task_node.next]
+            # 处理所有类型的连接
+            for conn_type in ['next', 'on_error', 'interrupt']:
+                conn_nodes = getattr(task_node, conn_type, None)
+                if not conn_nodes:
+                    continue
 
-            for next_name in next_nodes:
-                if next_name in node_map:
-                    target_node = node_map[next_name]
+                # 统一处理列表和单个值
+                if not isinstance(conn_nodes, list):
+                    conn_nodes = [conn_nodes]
 
-                    # 创建连接 - 这里需要根据实际的连接管理器实现调整
-                    self._create_connection(source_node, target_node)
+                for conn_name in conn_nodes:
+                    # 检查目标节点是否存在
+                    if conn_name in node_map:
+                        target_node = node_map[conn_name]
+                        # 创建到已存在节点的连接
+                        self._create_connection(source_node, target_node, conn_type)
+                    else:
+                        # 目标节点不存在，创建未知节点
+                        # 为未知节点创建一个基于连接类型的位置
+                        source_pos = source_node.pos()
 
-    def _create_connection(self, source_node, target_node):
+                        # 根据连接类型确定未知节点的位置
+                        if conn_type == 'next':
+                            unknown_pos = QPointF(source_pos.x() + 250, source_pos.y())
+                        elif conn_type == 'on_error':
+                            unknown_pos = QPointF(source_pos.x() + 200, source_pos.y() + 150)
+                        else:  # interrupt
+                            unknown_pos = QPointF(source_pos.x() + 200, source_pos.y() - 150)
+
+                        # 创建未知节点，保留原始ID
+                        unknown_node = self.create_unknown_node(
+                            id=conn_name,
+                            title=f"Unknown: {conn_name}",
+                            position=unknown_pos
+                        )
+                        # 更新节点映射
+                        node_map[conn_name] = unknown_node
+
+                        # 创建连接
+                        self._create_connection(source_node, unknown_node, conn_type)
+
+    def _create_connection(self, source_node, target_node, conn_type='next'):
         """
-        在两个节点之间创建连接
+        在两个节点之间创建特定类型的连接
 
         参数:
             source_node: 源节点
             target_node: 目标节点
+            conn_type: 连接类型 ('next', 'on_error', 'interrupt')
+
+        返回:
+            创建的连接对象或None
         """
-        # 获取输出和输入端口
-        source_port = source_node.get_output_ports()[0]  # 假设使用第一个输出端口
+        # 获取源节点的输出端口
+        output_ports = source_node.get_output_ports()
+        source_port = None
+
+        # 根据连接类型选择正确的输出端口
+        if isinstance(output_ports, dict):
+            # 从字典中通过类型获取端口
+            source_port = output_ports.get(conn_type)
+
+            # 如果没有找到特定类型的端口，使用默认端口
+            if not source_port and output_ports:
+                source_port = next(iter(output_ports.values()))
+        elif isinstance(output_ports, list):
+            # 从列表中找到匹配类型的端口
+            for port in output_ports:
+                if hasattr(port, 'port_type') and port.port_type == conn_type:
+                    source_port = port
+                    break
+
+            # 如果没有找到匹配的端口，使用第一个端口
+            if not source_port and output_ports:
+                source_port = output_ports[0]
+        else:
+            # 如果是单个端口
+            source_port = output_ports
+
+        # 获取目标节点的输入端口
         target_port = target_node.get_input_port()
 
         # 检查端口是否有效
         if source_port and target_port:
             # 使用连接管理器创建连接
-            self.connection_manager.create_connection(source_port, target_port)
+            connection = self.connection_manager.create_connection(source_port, target_port)
+            return connection
+
+        return None
+
+    def _update_pipeline_connections(self):
+        """根据可视化连接更新Pipeline中的节点关系"""
+        # 获取所有连接
+        connections = self.connection_manager.get_all_connections()
+
+        # 清除所有节点的next, on_error和interrupt属性
+        for task_node in self.pipeline.nodes.values():
+            task_node.next = []
+            if hasattr(task_node, 'on_error'):
+                task_node.on_error = []
+            if hasattr(task_node, 'interrupt'):
+                task_node.interrupt = []
+
+        # 遍历所有连接，更新节点关系
+        for connection in connections:
+            source_port = connection.source_port
+            target_port = connection.target_port
+
+            if source_port and target_port:
+                source_node_id = source_port.parent_node.id
+                target_node_id = target_port.parent_node.id
+
+                if source_node_id in self.pipeline.nodes and target_node_id in self.pipeline.nodes:
+                    source_task = self.pipeline.nodes[source_node_id]
+
+                    # 根据端口类型确定连接类型
+                    conn_type = getattr(source_port, 'port_type', 'next')
+
+                    # 根据连接类型更新相应的关系
+                    if conn_type == 'next':
+                        self._add_next_node(source_task, target_node_id)
+                    elif conn_type == 'on_error':
+                        self._add_error_node(source_task, target_node_id)
+                    elif conn_type == 'interrupt':
+                        self._add_interrupt_node(source_task, target_node_id)
+                    else:
+                        # 默认添加为next节点
+                        self._add_next_node(source_task, target_node_id)
+
+    def _add_next_node(self, task_node, node_name):
+        """
+        添加下一个节点到任务节点
+
+        参数:
+            task_node: 任务节点
+            node_name: 要添加的节点名称
+        """
+        if not hasattr(task_node, 'next') or task_node.next is None:
+            task_node.next = []
+
+        if isinstance(task_node.next, list):
+            if node_name not in task_node.next:
+                task_node.next.append(node_name)
+        else:
+            # 如果next不是列表，先转换为包含当前值的列表
+            current = task_node.next
+            task_node.next = [current] if current else []
+            if node_name not in task_node.next:
+                task_node.next.append(node_name)
+
+    def _add_error_node(self, task_node, node_name):
+        """
+        添加错误处理节点到任务节点
+
+        参数:
+            task_node: 任务节点
+            node_name: 要添加的节点名称
+        """
+        if not hasattr(task_node, 'on_error') or task_node.on_error is None:
+            task_node.on_error = []
+
+        if isinstance(task_node.on_error, list):
+            if node_name not in task_node.on_error:
+                task_node.on_error.append(node_name)
+        else:
+            # 如果on_error不是列表，先转换为包含当前值的列表
+            current = task_node.on_error
+            task_node.on_error = [current] if current else []
+            if node_name not in task_node.on_error:
+                task_node.on_error.append(node_name)
+
+    def _add_interrupt_node(self, task_node, node_name):
+        """
+        添加中断处理节点到任务节点
+
+        参数:
+            task_node: 任务节点
+            node_name: 要添加的节点名称
+        """
+        if not hasattr(task_node, 'interrupt') or task_node.interrupt is None:
+            task_node.interrupt = []
+
+        if isinstance(task_node.interrupt, list):
+            if node_name not in task_node.interrupt:
+                task_node.interrupt.append(node_name)
+        else:
+            # 如果interrupt不是列表，先转换为包含当前值的列表
+            current = task_node.interrupt
+            task_node.interrupt = [current] if current else []
+            if node_name not in task_node.interrupt:
+                task_node.interrupt.append(node_name)
 
     def _update_pipeline_from_visual(self):
         """将可视化节点的状态更新到Pipeline中的逻辑节点"""
@@ -496,28 +673,6 @@ class CanvasNodeManager(QObject):
 
         # 更新节点间的连接关系
         self._update_pipeline_connections()
-
-    def _update_pipeline_connections(self):
-        """根据可视化连接更新Pipeline中的节点关系"""
-        # 获取所有连接
-        connections = self.connection_manager.get_all_connections()
-
-        # 清除所有节点的next属性
-        for task_node in self.pipeline.nodes.values():
-            task_node.next = []
-
-        # 遍历所有连接，更新next关系
-        for connection in connections:
-            source_port = connection.source_port
-            target_port = connection.target_port
-
-            if source_port and target_port:
-                source_node_id = source_port.parent_node.id
-                target_node_id = target_port.parent_node.id
-
-                if source_node_id in self.pipeline.nodes and target_node_id in self.pipeline.nodes:
-                    source_task = self.pipeline.nodes[source_node_id]
-                    source_task.add_next_node(target_node_id)
 
     def validate(self):
         """
@@ -545,3 +700,145 @@ class CanvasNodeManager(QObject):
                 errors[name] = node_errors
 
         return errors
+
+    def _layout_nodes(self, pipeline, node_mapping):
+        """优化的节点布局算法，按照连接类型放置节点"""
+        # 识别入口节点
+        entry_nodes = pipeline.get_entry_nodes()
+
+        # 存储节点层级和水平位置
+        node_levels = {}  # 垂直位置（层级）
+        node_x_positions = {}  # 水平位置
+
+        # 存储节点的入边
+        node_incoming_edges = {}
+
+        # 第一步：使用BFS确定节点层级和收集入边信息
+        visited = set()
+        queue = [(node.name, 0) for node in entry_nodes]
+
+        while queue:
+            node_name, level = queue.pop(0)
+
+            if node_name in visited:
+                # 更新为最小层级
+                if level < node_levels.get(node_name, float('inf')):
+                    node_levels[node_name] = level
+                    # 需要重新处理后继节点
+                    task_node = pipeline.get_node(node_name)
+                    if task_node:
+                        for next_type in ['next', 'on_error', 'interrupt']:
+                            next_nodes = getattr(task_node, next_type, None)
+                            if next_nodes:
+                                if isinstance(next_nodes, str):
+                                    next_nodes = [next_nodes]
+                                for next_node in next_nodes:
+                                    queue.append((next_node, level + 1))
+                continue
+
+            visited.add(node_name)
+            node_levels[node_name] = level
+
+            # 获取任务节点
+            task_node = pipeline.get_node(node_name)
+            if not task_node:
+                continue
+
+            # 处理所有类型的后继节点
+            for next_type in ['next', 'on_error', 'interrupt']:
+                next_nodes = getattr(task_node, next_type, None)
+                if next_nodes:
+                    if isinstance(next_nodes, str):
+                        next_nodes = [next_nodes]
+                    for next_node in next_nodes:
+                        # 记录入边
+                        if next_node not in node_incoming_edges:
+                            node_incoming_edges[next_node] = []
+                        node_incoming_edges[next_node].append((node_name, next_type))
+
+                        # 加入队列
+                        queue.append((next_node, level + 1))
+
+        # 第二步：按层级组织节点
+        nodes_by_level = {}
+        for node_name, level in node_levels.items():
+            if level not in nodes_by_level:
+                nodes_by_level[level] = []
+            nodes_by_level[level].append(node_name)
+
+        # 第三步：计算水平位置
+        # 首先处理入口节点
+        for i, node in enumerate(entry_nodes):
+            node_x_positions[node.name] = i * 2  # 给入口节点留足空间
+
+        # 处理每一层的节点
+        for level in sorted(nodes_by_level.keys())[1:]:  # 跳过第0层（入口节点）
+            used_positions = set()  # 记录此层已使用的位置
+
+            # 首先处理有前驱的节点
+            for node_name in list(nodes_by_level[level]):
+                if node_name in node_incoming_edges:
+                    # 根据前驱关系计算位置
+                    suggested_x = []
+
+                    for pred_name, relation_type in node_incoming_edges[node_name]:
+                        if pred_name in node_x_positions:
+                            pred_x = node_x_positions[pred_name]
+
+                            if relation_type == 'next':
+                                # next关系：正下方
+                                suggested_x.append(pred_x)
+                            elif relation_type == 'on_error':
+                                # on_error关系：左下方
+                                suggested_x.append(pred_x - 1)
+                            elif relation_type == 'interrupt':
+                                # interrupt关系：右下方
+                                suggested_x.append(pred_x + 1)
+
+                    if suggested_x:
+                        # 计算平均位置并四舍五入
+                        avg_x = sum(suggested_x) / len(suggested_x)
+                        target_x = round(avg_x)
+
+                        # 处理位置冲突
+                        while target_x in used_positions:
+                            # 从目标位置开始，交替向左右寻找空位
+                            offset = 1
+                            found = False
+                            while not found and offset <= 10:  # 限制偏移范围
+                                # 尝试右侧
+                                if target_x + offset not in used_positions:
+                                    target_x += offset
+                                    found = True
+                                    break
+                                # 尝试左侧
+                                if target_x - offset not in used_positions:
+                                    target_x -= offset
+                                    found = True
+                                    break
+                                offset += 1
+
+                            if not found:
+                                # 如果找不到空位，就放在最右边
+                                target_x = max(used_positions) + 1 if used_positions else 0
+
+                        node_x_positions[node_name] = target_x
+                        used_positions.add(target_x)
+
+            # 处理剩余的节点（无前驱或前驱不在已处理节点中）
+            for node_name in nodes_by_level[level]:
+                if node_name not in node_x_positions:
+                    # 放在最右边
+                    target_x = max(used_positions) + 1 if used_positions else 0
+                    node_x_positions[node_name] = target_x
+                    used_positions.add(target_x)
+
+        # 应用布局
+        grid_spacing_x = 500  # 节点之间的水平间距
+        grid_spacing_y = 300  # 层级之间的垂直间距
+
+        for node_name in node_mapping:
+            if node_name in node_x_positions and node_name in node_levels:
+                x = node_x_positions[node_name] * grid_spacing_x
+                y = node_levels[node_name] * grid_spacing_y
+                node_mapping[node_name].set_position(x, y)

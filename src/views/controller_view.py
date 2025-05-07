@@ -405,7 +405,7 @@ class ControllerView(QWidget):
         if not node:
             self.selected_node_label.setText("选中节点: 未选择")
         else:
-            self.selected_node_label.setText(f"选中节点: {node[0].task_node.name}")
+            self.selected_node_label.setText(f"选中节点:")
 
     def update_task_file(self, file_path):
         """更新打开文件的标签，只显示文件名"""

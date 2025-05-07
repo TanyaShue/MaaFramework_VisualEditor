@@ -159,8 +159,7 @@ class ResourceLibrary(QWidget):
     @Slot(str)
     def open_resource(self, file_path):
         """Handle opening a resource file."""
-        self.resource_opened.emit(file_path)
-
+        self.resource_opened.emit(str(file_path))
     # 在ResourceLibrary类中添加以下方法
 
     def get_state(self):

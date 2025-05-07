@@ -197,6 +197,55 @@ class DisconnectNodesCommand(Command):
         self.canvas.connection_manager.connecting_port = self.source_port
         self.connection = self.canvas.connection_manager.finish_connection(self.target_port)
 
+
+class CreateUnknownNodeCommand(Command):
+    """创建未知节点并连接到它的命令"""
+
+    def __init__(self, source_port, position, canvas):
+        super().__init__()
+        self.source_port = source_port
+        self.position = position
+        self.canvas = canvas
+        self.unknown_node = None
+        self.connection = None
+
+        # 为未知节点生成ID
+        self.node_id = f"UNK_{len(self.canvas.node_manager.nodes):03d}"
+
+    def execute(self):
+        # 创建未知节点
+        self.unknown_node = self.canvas.node_manager.create_unknown_node(
+            id=self.node_id,
+            position=self.position
+        )
+
+        # 获取输入端口
+        target_port = self.unknown_node.get_input_port()
+
+        # 创建连接
+        if self.source_port and target_port and self.source_port.can_connect(target_port):
+            self.connection = self.canvas.connection_manager.create_connection(
+                self.source_port, target_port
+            )
+            return True
+        return False
+
+    def undo(self):
+        if self.unknown_node:
+            # 首先移除连接
+            if self.connection:
+                self.canvas.connection_manager.remove_connection(self.connection)
+                self.connection = None
+
+            # 然后移除节点
+            self.canvas.node_manager.remove_node(self.unknown_node)
+            self.unknown_node = None
+            return True
+        return False
+
+    def redo(self):
+        return self.execute()
+
 class CommandManager:
     """命令管理器，用于管理撤销/重做栈"""
 

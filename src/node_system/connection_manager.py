@@ -75,8 +75,9 @@ class ConnectionManager:
         if not self.can_connect(self.connecting_port, target_port):
             return None
 
-        connection = Connection(self.connecting_port, target_port, self.scene)
-        self.connections.append(connection)
+        # 获取连接类型
+        conn_type = getattr(self.connecting_port, 'port_type', 'next')
+        connection = self.create_connection(self.connecting_port, target_port)
         self.cancel_connection()
         return connection
 
@@ -104,13 +105,13 @@ class ConnectionManager:
         # 根据端口类型确定颜色
         port_type = getattr(self.connecting_port, 'port_type', '')
         if port_type == 'next':
-            color = QColor(100, 220, 100)
+            color = QColor(100, 220, 100)  # 绿色
         elif port_type == 'on_error':
-            color = QColor(220, 100, 100)
+            color = QColor(220, 100, 100)  # 红色
         elif port_type == 'interrupt':
-            color = QColor(220, 180, 100)
+            color = QColor(220, 180, 100)  # 橙色
         else:
-            color = QColor(100, 100, 100)
+            color = QColor(100, 100, 100)  # 灰色
 
         temp_connection = QGraphicsPathItem()
         pen = QPen(color, 2, Qt.DashLine)
@@ -221,10 +222,13 @@ class ConnectionManager:
                 source_node = source_port.parent_node
                 target_node = target_port.parent_node
 
+                # 获取连接类型
+                conn_type = getattr(source_port, 'port_type', 'next')
+
                 # 构建连接数据
                 conn_data = {
                     'source_node_id': source_node.id,
-                    'source_port_type': getattr(source_port, 'port_type', 'output'),
+                    'source_port_type': conn_type,
                     'source_port_name': getattr(source_port, 'port_name', ''),
                     'target_node_id': target_node.id,
                     'target_port_type': getattr(target_port, 'port_type', 'input'),
@@ -252,6 +256,7 @@ class ConnectionManager:
             try:
                 source_node_id = conn_data['source_node_id']
                 target_node_id = conn_data['target_node_id']
+                conn_type = conn_data.get('source_port_type', 'next')
 
                 if source_node_id in node_map and target_node_id in node_map:
                     source_node = node_map[source_node_id]
@@ -259,48 +264,64 @@ class ConnectionManager:
 
                     # 获取源端口
                     source_port = None
-                    if 'source_port_name' in conn_data and conn_data['source_port_name']:
-                        # 如果有端口名称，按名称获取
-                        output_ports = source_node.get_output_ports()
-                        if isinstance(output_ports, dict):
+                    output_ports = source_node.get_output_ports()
+
+                    if isinstance(output_ports, dict):
+                        # 先通过端口类型尝试获取
+                        source_port = output_ports.get(conn_type)
+
+                        # 如果没有找到，但有端口名，使用端口名查找
+                        if not source_port and 'source_port_name' in conn_data and conn_data['source_port_name']:
                             source_port = output_ports.get(conn_data['source_port_name'])
-                        else:
-                            # 遍历所有输出端口查找匹配的
+
+                        # 如果仍然没有找到，使用第一个可用端口
+                        if not source_port and output_ports:
+                            source_port = next(iter(output_ports.values()))
+                    elif isinstance(output_ports, list):
+                        # 遍历所有输出端口查找匹配的类型
+                        for port in output_ports:
+                            if getattr(port, 'port_type', '') == conn_type:
+                                source_port = port
+                                break
+
+                        # 如果没有找到类型匹配的，但有端口名，按名称查找
+                        if not source_port and 'source_port_name' in conn_data and conn_data['source_port_name']:
                             for port in output_ports:
                                 if getattr(port, 'port_name', '') == conn_data['source_port_name']:
                                     source_port = port
                                     break
-                    else:
-                        # 没有端口名称，获取默认端口
-                        output_ports = source_node.get_output_ports()
-                        if isinstance(output_ports, dict) and output_ports:
-                            source_port = next(iter(output_ports.values()))
-                        elif isinstance(output_ports, list) and output_ports:
+
+                        # 如果仍然没有找到，使用第一个端口
+                        if not source_port and output_ports:
                             source_port = output_ports[0]
+                    else:
+                        # 如果是单个端口
+                        source_port = output_ports
 
                     # 获取目标端口
                     target_port = None
-                    if 'target_port_name' in conn_data and conn_data['target_port_name']:
+                    if 'target_port_name' in conn_data and conn_data['target_port_name'] and hasattr(target_node,
+                                                                                                     'get_input_ports'):
                         # 如果有多输入端口，按名称获取
-                        if hasattr(target_node, 'get_input_ports'):
-                            input_ports = target_node.get_input_ports()
-                            if isinstance(input_ports, dict):
-                                target_port = input_ports.get(conn_data['target_port_name'])
-                            else:
-                                # 遍历所有输入端口查找匹配的
-                                for port in input_ports:
-                                    if getattr(port, 'port_name', '') == conn_data['target_port_name']:
-                                        target_port = port
-                                        break
+                        input_ports = target_node.get_input_ports()
+                        if isinstance(input_ports, dict):
+                            target_port = input_ports.get(conn_data['target_port_name'])
                         else:
-                            # 单输入端口
-                            target_port = target_node.get_input_port()
+                            # 遍历所有输入端口查找匹配的
+                            for port in input_ports:
+                                if getattr(port, 'port_name', '') == conn_data['target_port_name']:
+                                    target_port = port
+                                    break
                     else:
                         # 没有端口名称，获取默认端口
                         target_port = target_node.get_input_port()
 
                     # 创建连接
                     if source_port and target_port and self.can_connect(source_port, target_port):
+                        # 设置源端口的类型（如果需要）
+                        if hasattr(source_port, 'port_type'):
+                            source_port.port_type = conn_type
+
                         self.canvas.command_manager.execute(
                             ConnectNodesCommand(source_port, target_port, self.canvas)
                         )
@@ -325,3 +346,79 @@ class ConnectionManager:
                     connection.get_target() == target_port):
                 return connection
         return None
+
+    def create_connection(self, source_port, target_port):
+        """
+        在两个端口之间创建连接
+
+        参数:
+            source_port: 源端口
+            target_port: 目标端口
+
+        返回:
+            创建的连接对象，如果无法连接则返回None
+        """
+        # 检查连接是否有效
+        if not self.can_connect(source_port, target_port):
+            return None
+
+        # 检查是否已经存在连接
+        existing_connection = self.find_connection(source_port, target_port)
+        if existing_connection:
+            return existing_connection
+
+        # 创建新的连接
+        connection = Connection(source_port, target_port, self.scene)
+
+        # 添加到连接列表
+        self.connections.append(connection)
+
+        # 更新连接的路径
+        connection.update_path()
+
+        return connection
+
+    def get_all_connections(self):
+        """
+        获取所有连接
+
+        返回:
+            list: 所有连接对象的列表
+        """
+        return self.connections.copy()
+
+    def create_connection_with_type(self, source_port, target_port, conn_type=None):
+        """
+        创建指定类型的连接
+
+        参数:
+            source_port: 源端口
+            target_port: 目标端口
+            conn_type: 连接类型，可选
+
+        返回:
+            创建的连接对象，如果无法连接则返回None
+        """
+        # 检查连接是否有效
+        if not self.can_connect(source_port, target_port):
+            return None
+
+        # 如果指定了连接类型，且源端口有port_type属性，设置它
+        if conn_type and hasattr(source_port, 'port_type'):
+            source_port.port_type = conn_type
+
+        # 检查是否已经存在连接
+        existing_connection = self.find_connection(source_port, target_port)
+        if existing_connection:
+            return existing_connection
+
+        # 创建新的连接
+        connection = Connection(source_port, target_port, self.scene)
+
+        # 添加到连接列表
+        self.connections.append(connection)
+
+        # 更新连接的路径
+        connection.update_path()
+
+        return connection

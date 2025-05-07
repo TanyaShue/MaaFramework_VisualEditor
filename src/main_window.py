@@ -352,237 +352,9 @@ class MainWindow(QMainWindow):
         """节点属性更改时的处理方法"""
         self.mark_unsaved_changes()
 
-    @Slot(str)
-    def on_resource_opened(self, file_path):
-        """处理资源文件打开事件"""
-        self.status_label.setText(f"已打开资源: {file_path}")
-        self.controller_view.update_task_file(file_path)
 
-        try:
-            # 从文件加载流水线
-            pipeline = open_pipeline.load_from_file(file_path)
 
-            # 清除画布上的现有内容
-            self.canvas.clear()
 
-            # 创建一个字典来存储任务节点与可视节点的映射关系
-            node_mapping = {}
-
-            # 第一步：创建所有节点
-            for name, task_node in pipeline.nodes.items():
-                # 创建可视化节点
-                visual_node = Node(
-                    id=name,
-                    title=name,
-                    task_node=task_node
-                )
-
-                # 添加节点到画布
-                self.canvas.add_node(visual_node)
-
-                # 存储映射关系
-                node_mapping[name] = visual_node
-
-            # 确定节点位置
-            self._layout_nodes(pipeline, node_mapping)
-
-            # 第二步：创建所有连接
-            for name, task_node in pipeline.nodes.items():
-                source_node = node_mapping[name]
-
-                # 连接 "next" 输出
-                if task_node.next:
-                    next_nodes = task_node.next if isinstance(task_node.next, list) else [task_node.next]
-                    for next_node_name in next_nodes:
-                        if next_node_name in node_mapping:
-                            target_node = node_mapping[next_node_name]
-                            source_port = source_node.get_output_port("next")
-                            target_port = target_node.get_input_port()
-
-                            if source_port and target_port:
-                                self.canvas.command_manager.execute(
-                                    ConnectNodesCommand(source_port, target_port, self.canvas)
-                                )
-
-                # 连接 "on_error" 输出
-                if task_node.on_error:
-                    error_nodes = task_node.on_error if isinstance(task_node.on_error, list) else [task_node.on_error]
-                    for error_node_name in error_nodes:
-                        if error_node_name in node_mapping:
-                            target_node = node_mapping[error_node_name]
-                            source_port = source_node.get_output_port("on_error")
-                            target_port = target_node.get_input_port()
-
-                            if source_port and target_port:
-                                self.canvas.command_manager.execute(
-                                    ConnectNodesCommand(source_port, target_port, self.canvas)
-                                )
-
-                # 连接 "interrupt" 输出
-                if task_node.interrupt:
-                    interrupt_nodes = task_node.interrupt if isinstance(task_node.interrupt, list) else [
-                        task_node.interrupt]
-                    for interrupt_node_name in interrupt_nodes:
-                        if interrupt_node_name in node_mapping:
-                            target_node = node_mapping[interrupt_node_name]
-                            source_port = source_node.get_output_port("interrupt")
-                            target_port = target_node.get_input_port()
-
-                            if source_port and target_port:
-                                self.canvas.command_manager.execute(
-                                    ConnectNodesCommand(source_port, target_port, self.canvas)
-                                )
-
-            # 居中显示所有节点
-            self.canvas.center_on_content()
-
-            self.status_label.setText(f"已加载流水线: {file_path} (共 {len(pipeline.nodes)} 个节点)")
-
-        except Exception as e:
-            self.status_label.setText(f"加载失败: {str(e)}")
-            print(f"加载流水线时出错: {str(e)}")
-
-    def _layout_nodes(self, pipeline, node_mapping):
-        """优化的节点布局算法，按照连接类型放置节点"""
-        # 识别入口节点
-        entry_nodes = pipeline.get_entry_nodes()
-
-        # 存储节点层级和水平位置
-        node_levels = {}  # 垂直位置（层级）
-        node_x_positions = {}  # 水平位置
-
-        # 存储节点的入边
-        node_incoming_edges = {}
-
-        # 第一步：使用BFS确定节点层级和收集入边信息
-        visited = set()
-        queue = [(node.name, 0) for node in entry_nodes]
-
-        while queue:
-            node_name, level = queue.pop(0)
-
-            if node_name in visited:
-                # 更新为最小层级
-                if level < node_levels.get(node_name, float('inf')):
-                    node_levels[node_name] = level
-                    # 需要重新处理后继节点
-                    task_node = pipeline.get_node(node_name)
-                    if task_node:
-                        for next_type in ['next', 'on_error', 'interrupt']:
-                            next_nodes = getattr(task_node, next_type, None)
-                            if next_nodes:
-                                if isinstance(next_nodes, str):
-                                    next_nodes = [next_nodes]
-                                for next_node in next_nodes:
-                                    queue.append((next_node, level + 1))
-                continue
-
-            visited.add(node_name)
-            node_levels[node_name] = level
-
-            # 获取任务节点
-            task_node = pipeline.get_node(node_name)
-            if not task_node:
-                continue
-
-            # 处理所有类型的后继节点
-            for next_type in ['next', 'on_error', 'interrupt']:
-                next_nodes = getattr(task_node, next_type, None)
-                if next_nodes:
-                    if isinstance(next_nodes, str):
-                        next_nodes = [next_nodes]
-                    for next_node in next_nodes:
-                        # 记录入边
-                        if next_node not in node_incoming_edges:
-                            node_incoming_edges[next_node] = []
-                        node_incoming_edges[next_node].append((node_name, next_type))
-
-                        # 加入队列
-                        queue.append((next_node, level + 1))
-
-        # 第二步：按层级组织节点
-        nodes_by_level = {}
-        for node_name, level in node_levels.items():
-            if level not in nodes_by_level:
-                nodes_by_level[level] = []
-            nodes_by_level[level].append(node_name)
-
-        # 第三步：计算水平位置
-        # 首先处理入口节点
-        for i, node in enumerate(entry_nodes):
-            node_x_positions[node.name] = i * 2  # 给入口节点留足空间
-
-        # 处理每一层的节点
-        for level in sorted(nodes_by_level.keys())[1:]:  # 跳过第0层（入口节点）
-            used_positions = set()  # 记录此层已使用的位置
-
-            # 首先处理有前驱的节点
-            for node_name in list(nodes_by_level[level]):
-                if node_name in node_incoming_edges:
-                    # 根据前驱关系计算位置
-                    suggested_x = []
-
-                    for pred_name, relation_type in node_incoming_edges[node_name]:
-                        if pred_name in node_x_positions:
-                            pred_x = node_x_positions[pred_name]
-
-                            if relation_type == 'next':
-                                # next关系：正下方
-                                suggested_x.append(pred_x)
-                            elif relation_type == 'on_error':
-                                # on_error关系：左下方
-                                suggested_x.append(pred_x - 1)
-                            elif relation_type == 'interrupt':
-                                # interrupt关系：右下方
-                                suggested_x.append(pred_x + 1)
-
-                    if suggested_x:
-                        # 计算平均位置并四舍五入
-                        avg_x = sum(suggested_x) / len(suggested_x)
-                        target_x = round(avg_x)
-
-                        # 处理位置冲突
-                        while target_x in used_positions:
-                            # 从目标位置开始，交替向左右寻找空位
-                            offset = 1
-                            found = False
-                            while not found and offset <= 10:  # 限制偏移范围
-                                # 尝试右侧
-                                if target_x + offset not in used_positions:
-                                    target_x += offset
-                                    found = True
-                                    break
-                                # 尝试左侧
-                                if target_x - offset not in used_positions:
-                                    target_x -= offset
-                                    found = True
-                                    break
-                                offset += 1
-
-                            if not found:
-                                # 如果找不到空位，就放在最右边
-                                target_x = max(used_positions) + 1 if used_positions else 0
-
-                        node_x_positions[node_name] = target_x
-                        used_positions.add(target_x)
-
-            # 处理剩余的节点（无前驱或前驱不在已处理节点中）
-            for node_name in nodes_by_level[level]:
-                if node_name not in node_x_positions:
-                    # 放在最右边
-                    target_x = max(used_positions) + 1 if used_positions else 0
-                    node_x_positions[node_name] = target_x
-                    used_positions.add(target_x)
-
-        # 应用布局
-        grid_spacing_x = 500  # 节点之间的水平间距
-        grid_spacing_y = 300  # 层级之间的垂直间距
-
-        for node_name in node_mapping:
-            if node_name in node_x_positions and node_name in node_levels:
-                x = node_x_positions[node_name] * grid_spacing_x
-                y = node_levels[node_name] * grid_spacing_y
-                node_mapping[node_name].set_position(x, y)
 
     @Slot(QDockWidget, bool)
     def toggle_dock_visibility(self, dock, visible):
@@ -913,96 +685,106 @@ class MainWindow(QMainWindow):
     def on_resource_opened(self, file_path):
         """处理资源文件打开事件"""
         self.status_label.setText(f"已打开资源: {file_path}")
-
-        # 更新controller view
         self.controller_view.update_task_file(file_path)
-
-        # 保存当前任务文件路径到配置
-        self.config_manager.save_task_file_state(file_path)
-
         try:
-            # 从文件加载流水线
-            pipeline = open_pipeline.load_from_file(file_path)
-
-            # 清除画布上的现有内容
-            self.canvas.clear()
-
-            # 创建一个字典来存储任务节点与可视节点的映射关系
-            node_mapping = {}
-
-            # 第一步：创建所有节点
-            for name, task_node in pipeline.nodes.items():
-                # 创建可视化节点
-                visual_node = Node(
-                    id=name,
-                    title=name,
-                    task_node=task_node
-                )
-
-                # 添加节点到画布
-                self.canvas.add_node(visual_node)
-
-                # 存储映射关系
-                node_mapping[name] = visual_node
-
-            # 确定节点位置
-            self._layout_nodes(pipeline, node_mapping)
-
-            # 第二步：创建所有连接
-            for name, task_node in pipeline.nodes.items():
-                source_node = node_mapping[name]
-
-                # 连接 "next" 输出
-                if task_node.next:
-                    next_nodes = task_node.next if isinstance(task_node.next, list) else [task_node.next]
-                    for next_node_name in next_nodes:
-                        if next_node_name in node_mapping:
-                            target_node = node_mapping[next_node_name]
-                            source_port = source_node.get_output_port("next")
-                            target_port = target_node.get_input_port()
-
-                            if source_port and target_port:
-                                self.canvas.command_manager.execute(
-                                    ConnectNodesCommand(source_port, target_port, self.canvas)
-                                )
-
-                # 连接 "on_error" 输出
-                if task_node.on_error:
-                    error_nodes = task_node.on_error if isinstance(task_node.on_error, list) else [task_node.on_error]
-                    for error_node_name in error_nodes:
-                        if error_node_name in node_mapping:
-                            target_node = node_mapping[error_node_name]
-                            source_port = source_node.get_output_port("on_error")
-                            target_port = target_node.get_input_port()
-
-                            if source_port and target_port:
-                                self.canvas.command_manager.execute(
-                                    ConnectNodesCommand(source_port, target_port, self.canvas)
-                                )
-
-                # 连接 "interrupt" 输出
-                if task_node.interrupt:
-                    interrupt_nodes = task_node.interrupt if isinstance(task_node.interrupt, list) else [
-                        task_node.interrupt]
-                    for interrupt_node_name in interrupt_nodes:
-                        if interrupt_node_name in node_mapping:
-                            target_node = node_mapping[interrupt_node_name]
-                            source_port = source_node.get_output_port("interrupt")
-                            target_port = target_node.get_input_port()
-
-                            if source_port and target_port:
-                                self.canvas.command_manager.execute(
-                                    ConnectNodesCommand(source_port, target_port, self.canvas)
-                                )
-
-            # 居中显示所有节点
-            self.canvas.center_on_content()
-
-            self.status_label.setText(f"已加载流水线: {file_path} (共 {len(pipeline.nodes)} 个节点)")
-
+            self.canvas.load_file(file_path)
         except Exception as e:
             self.status_label.setText(f"加载失败: {str(e)}")
             print(f"加载流水线时出错: {str(e)}")
+    # @Slot(str)
+    # def on_resource_opened(self, file_path):
+    #     """处理资源文件打开事件"""
+    #     self.status_label.setText(f"已打开资源: {file_path}")
+    #
+    #     # 更新controller view
+    #     self.controller_view.update_task_file(file_path)
+    #
+    #     # 保存当前任务文件路径到配置
+    #     self.config_manager.save_task_file_state(file_path)
+    #
+    #     try:
+    #         # 从文件加载流水线
+    #         pipeline = open_pipeline.load_from_file(file_path)
+    #
+    #         # 清除画布上的现有内容
+    #         self.canvas.clear()
+    #
+    #         # 创建一个字典来存储任务节点与可视节点的映射关系
+    #         node_mapping = {}
+    #
+    #         # 第一步：创建所有节点
+    #         for name, task_node in pipeline.nodes.items():
+    #             # 创建可视化节点
+    #             visual_node = Node(
+    #                 id=name,
+    #                 title=name,
+    #                 task_node=task_node
+    #             )
+    #
+    #             # 添加节点到画布
+    #             self.canvas.add_node(visual_node)
+    #
+    #             # 存储映射关系
+    #             node_mapping[name] = visual_node
+    #
+    #         # 确定节点位置
+    #         self._layout_nodes(pipeline, node_mapping)
+    #
+    #         # 第二步：创建所有连接
+    #         for name, task_node in pipeline.nodes.items():
+    #             source_node = node_mapping[name]
+    #
+    #             # 连接 "next" 输出
+    #             if task_node.next:
+    #                 next_nodes = task_node.next if isinstance(task_node.next, list) else [task_node.next]
+    #                 for next_node_name in next_nodes:
+    #                     if next_node_name in node_mapping:
+    #                         target_node = node_mapping[next_node_name]
+    #                         source_port = source_node.get_output_port("next")
+    #                         target_port = target_node.get_input_port()
+    #
+    #                         if source_port and target_port:
+    #                             self.canvas.command_manager.execute(
+    #                                 ConnectNodesCommand(source_port, target_port, self.canvas)
+    #                             )
+    #
+    #             # 连接 "on_error" 输出
+    #             if task_node.on_error:
+    #                 error_nodes = task_node.on_error if isinstance(task_node.on_error, list) else [task_node.on_error]
+    #                 for error_node_name in error_nodes:
+    #                     if error_node_name in node_mapping:
+    #                         target_node = node_mapping[error_node_name]
+    #                         source_port = source_node.get_output_port("on_error")
+    #                         target_port = target_node.get_input_port()
+    #
+    #                         if source_port and target_port:
+    #                             self.canvas.command_manager.execute(
+    #                                 ConnectNodesCommand(source_port, target_port, self.canvas)
+    #                             )
+    #
+    #             # 连接 "interrupt" 输出
+    #             if task_node.interrupt:
+    #                 interrupt_nodes = task_node.interrupt if isinstance(task_node.interrupt, list) else [
+    #                     task_node.interrupt]
+    #                 for interrupt_node_name in interrupt_nodes:
+    #                     if interrupt_node_name in node_mapping:
+    #                         target_node = node_mapping[interrupt_node_name]
+    #                         source_port = source_node.get_output_port("interrupt")
+    #                         target_port = target_node.get_input_port()
+    #
+    #                         if source_port and target_port:
+    #                             self.canvas.command_manager.execute(
+    #                                 ConnectNodesCommand(source_port, target_port, self.canvas)
+    #                             )
+    #
+    #         # 居中显示所有节点
+    #         self.canvas.center_on_content()
+    #
+    #         self.status_label.setText(f"已加载流水线: {file_path} (共 {len(pipeline.nodes)} 个节点)")
+    #
+    #     except Exception as e:
+    #         self.status_label.setText(f"加载失败: {str(e)}")
+    #         print(f"加载流水线时出错: {str(e)}")
 
     def load_project(self, path):
         """从文件加载项目

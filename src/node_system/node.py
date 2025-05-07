@@ -426,6 +426,7 @@ class Node(QGraphicsItem):
         self._update_port_positions()
         self._update_connections()
         self.update()
+
     def get_task_node(self):
         """Return the TaskNode object"""
         return self.task_node
