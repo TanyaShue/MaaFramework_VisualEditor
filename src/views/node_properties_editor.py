@@ -5,16 +5,17 @@ from PySide6.QtGui import QTextCursor, QFont
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QLabel, QFormLayout,
                                QLineEdit, QSpinBox, QPushButton, QCheckBox,
                                QComboBox, QTextEdit, QDoubleSpinBox, QHBoxLayout,
-                               QScrollArea, QGroupBox, QFrame, QMessageBox,
+                               QScrollArea, QFrame, QMessageBox,
                                QTabWidget, QStackedWidget)
 
 from src.pipeline import TaskNode
 from src.views.components.collapsible_box import CollapsibleBox
 from src.views.components.list_editor import ListEditor
+from src.views.components.image_preview_container import ImagePreviewContainer, ImageContainer
 
 
 class NodePropertiesEditor(QWidget):
-    """节点属性编辑器 - 性能优化版"""
+    """节点属性编辑器"""
 
     node_changed = Signal(object)  # 当节点被修改时发送信号
 
@@ -54,22 +55,6 @@ class NodePropertiesEditor(QWidget):
         }
     """
 
-    GROUP_BOX_STYLE = """
-        QGroupBox {
-            font-weight: bold;
-            border: 1px solid #cccccc;
-            border-radius: 5px;
-            margin-top: 10px;
-            padding-top: 15px;
-        }
-        QGroupBox::title {
-            subcontrol-origin: margin;
-            subcontrol-position: top left;
-            left: 10px;
-            padding: 0 5px;
-        }
-    """
-
     INPUT_STYLE = """
         QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox {
             padding: 3px;
@@ -94,12 +79,10 @@ class NodePropertiesEditor(QWidget):
             "DoNothing", "Click", "Swipe", "MultiSwipe", "Key",
             "InputText", "StartApp", "StopApp", "StopTask", "Command", "Custom"
         ]
-
-        # 初始化UI
-        self.init_ui()
-
         # 当前节点
         self.current_node = None
+        # 初始化UI
+        self.init_ui()
 
         # 是否自动保存
         self.auto_save = False
@@ -169,25 +152,32 @@ class NodePropertiesEditor(QWidget):
         scroll_layout = QVBoxLayout(scroll_widget)
         scroll_layout.setSpacing(10)
 
-        # === 基本属性组 ===
-        self.basic_group = QGroupBox("基本属性")
-        self.basic_group.setStyleSheet(self.GROUP_BOX_STYLE)
-        basic_layout = QFormLayout(self.basic_group)
-        basic_layout.setSpacing(8)
-        basic_layout.setContentsMargins(10, 15, 10, 10)
+        # === 基本属性组 (改用CollapsibleBox) ===
+        self.basic_box = CollapsibleBox("基本属性")
+        self.basic_box.set_expanded(True)  # 默认展开
 
         self.node_name_input = QLineEdit()
         self.node_name_input.setStyleSheet(self.INPUT_STYLE)
 
         self.recognition_combo = QComboBox()
         self.recognition_combo.setStyleSheet(self.INPUT_STYLE)
+        self.recognition_combo.addItems(self.recognition_types)
 
         self.action_combo = QComboBox()
         self.action_combo.setStyleSheet(self.INPUT_STYLE)
+        self.action_combo.addItems(self.action_types)
 
-        basic_layout.addRow("节点名称:", self.node_name_input)
-        basic_layout.addRow("识别算法:", self.recognition_combo)
-        basic_layout.addRow("执行动作:", self.action_combo)
+        self.basic_box.add_row("节点名称:", self.node_name_input)
+        self.basic_box.add_row("识别算法:", self.recognition_combo)
+        self.basic_box.add_row("执行动作:", self.action_combo)
+
+        # === 节点识别预览 ===
+        self.preview_box = CollapsibleBox("节点识别预览")
+        # 创建预览容器占位符（不需要实现具体功能）
+        self.image_preview_container = ImagePreviewContainer()
+        self.image_preview_container.setMinimumHeight(150)
+        self.image_preview_container.setStyleSheet("background-color: #f0f0f0; border: 1px dashed #ccc;")
+        self.preview_box.content_layout.addWidget(self.image_preview_container)
 
         # === 可折叠的流程控制属性组 ===
         self.flow_box = CollapsibleBox("流程控制")
@@ -298,7 +288,8 @@ class NodePropertiesEditor(QWidget):
         button_layout.addWidget(self.reset_button)
 
         # 添加所有组件到滚动布局
-        scroll_layout.addWidget(self.basic_group)
+        scroll_layout.addWidget(self.basic_box)
+        scroll_layout.addWidget(self.preview_box)
         scroll_layout.addWidget(self.flow_box)
         scroll_layout.addWidget(self.common_box)
         scroll_layout.addWidget(self.delay_box)
@@ -316,7 +307,7 @@ class NodePropertiesEditor(QWidget):
         json_tab = QWidget()
         json_layout = QVBoxLayout(json_tab)
 
-        # Banner de error para mostrar cuando el JSON no es válido
+        # JSON错误提示
         self.json_error_banner = QLabel()
         self.json_error_banner.setStyleSheet("""
             QLabel {
@@ -332,11 +323,11 @@ class NodePropertiesEditor(QWidget):
         self.json_error_banner.hide()
         json_layout.addWidget(self.json_error_banner)
 
-        # Editor de JSON
+        # JSON编辑器
         self.json_editor = QTextEdit()
         self.json_editor.setLineWrapMode(QTextEdit.NoWrap)
 
-        # Configuración del editor para mejor visualización
+        # 设置编辑器字体和样式
         font = QFont("Consolas, Courier New, monospace", 11)
         font.setFixedPitch(True)
         self.json_editor.setFont(font)
@@ -351,7 +342,7 @@ class NodePropertiesEditor(QWidget):
         """)
         json_layout.addWidget(self.json_editor, 1)
 
-        # Botones para aplicar o descartar cambios
+        # JSON操作按钮
         json_button_layout = QHBoxLayout()
         self.json_apply_button = QPushButton("应用JSON")
         self.json_apply_button.setStyleSheet(self.BUTTON_STYLE)
@@ -363,16 +354,11 @@ class NodePropertiesEditor(QWidget):
         json_button_layout.addWidget(self.json_apply_button)
         json_layout.addLayout(json_button_layout)
 
-        # Reemplazar la pestaña de marcador de posición
-        self.tab_widget.removeTab(1)  # Eliminar la pestaña de placeholder
+        # 添加JSON标签页
         self.tab_widget.addTab(json_tab, "json预览")
 
         # 添加标签页窗口到主布局
         main_layout.addWidget(self.tab_widget)
-
-        # 设置下拉框内容
-        self.recognition_combo.addItems(self.recognition_types)
-        self.action_combo.addItems(self.action_types)
 
         # 保存基本属性控件的引用
         self.property_widgets = {
@@ -635,6 +621,7 @@ class NodePropertiesEditor(QWidget):
             roi_offset_edit.setStyleSheet(self.INPUT_STYLE)
             widgets["区域偏移:"] = roi_offset_edit
 
+        # 连接信号到更改处理函数
         for label, widget in widgets.items():
             if isinstance(widget, QLineEdit):
                 widget.textChanged.connect(self.on_widget_changed)
@@ -702,7 +689,6 @@ class NodePropertiesEditor(QWidget):
             return widgets
 
         elif action_type == "Click":
-
             target_edit = QLineEdit()
             target_edit.setPlaceholderText("节点名或坐标 [x,y,w,h],不填写则为识别目标")
             target_edit.setStyleSheet(self.INPUT_STYLE)
@@ -846,6 +832,7 @@ class NodePropertiesEditor(QWidget):
             target_offset_edit.setStyleSheet(self.INPUT_STYLE)
             widgets["目标偏移:"] = target_offset_edit
 
+        # 连接信号到更改处理函数
         for label, widget in widgets.items():
             if isinstance(widget, QLineEdit):
                 widget.textChanged.connect(self.on_widget_changed)
@@ -874,6 +861,7 @@ class NodePropertiesEditor(QWidget):
         self.json_apply_button.clicked.connect(self.apply_json_to_node)
         self.json_reset_button.clicked.connect(self.update_json_preview)
         self.tab_widget.currentChanged.connect(self.on_tab_changed)
+
         # 自动保存复选框
         self.auto_save_check.toggled.connect(self.toggle_auto_save)
 
@@ -925,19 +913,13 @@ class NodePropertiesEditor(QWidget):
         if not self.current_node or not self.auto_save:
             return
 
-        # 更新节点名称
+        # 更新节点属性
         self.current_node.name = self.node_name_input.text()
-
-        # 更新基本属性
         self.current_node.recognition = self.recognition_combo.currentText()
         self.current_node.action = self.action_combo.currentText()
-
-        # 更新流程控制属性
         self.current_node.next = self.next_editor.get_value()
         self.current_node.interrupt = self.interrupt_editor.get_value()
         self.current_node.on_error = self.on_error_editor.get_value()
-
-        # 更新通用属性
         self.current_node.is_sub = self.is_sub_check.isChecked()
         self.current_node.rate_limit = self.rate_limit_spin.value()
         self.current_node.timeout = self.timeout_spin.value()
@@ -957,8 +939,6 @@ class NodePropertiesEditor(QWidget):
 
         # 发送节点已更改信号
         self.node_changed.emit(self.current_node)
-
-        print(self.current_node.to_dict())
 
     def on_recognition_changed(self, recognition_type):
         """当识别算法类型改变时切换到对应的容器 - 优化版"""
@@ -992,81 +972,20 @@ class NodePropertiesEditor(QWidget):
             self.update_json_preview()
             self.is_updating_ui = True
 
-            # 首先清空所有输入字段
+            # 清空所有输入字段
             self.clear_all_inputs()
 
             if node is None:
                 # 创建一个默认节点
                 self.current_node = TaskNode("New Node")
             else:
-                # 判断传入的是什么类型的节点
+                # 使用传入的节点
                 self.current_node = node
+
             # 更新界面
             self.update_ui_from_node()
         finally:
             # 确保标志被重置，即使发生异常
-            self.is_updating_ui = False
-
-    def update_ui_from_node(self):
-        """根据当前节点更新UI控件 - 优化版"""
-        if not self.current_node:
-            return
-
-        self.is_updating_ui = True
-
-        try:
-            # 设置基本属性
-            self.node_name_input.setText(self.current_node.name)
-
-            # 设置识别算法和动作类型
-            recognition_index = self.recognition_combo.findText(self.current_node.recognition)
-            if recognition_index >= 0:
-                self.recognition_combo.setCurrentIndex(recognition_index)
-
-            action_index = self.action_combo.findText(self.current_node.action)
-            if action_index >= 0:
-                self.action_combo.setCurrentIndex(action_index)
-
-            # 设置流程控制属性
-            self.next_editor.set_value(self.current_node.next)
-            self.interrupt_editor.set_value(self.current_node.interrupt)
-            self.on_error_editor.set_value(self.current_node.on_error)
-
-            # 设置通用属性
-            self.is_sub_check.setChecked(self.current_node.is_sub)
-            self.rate_limit_spin.setValue(self.current_node.rate_limit)
-            self.timeout_spin.setValue(self.current_node.timeout)
-            self.inverse_check.setChecked(self.current_node.inverse)
-            self.enabled_check.setChecked(self.current_node.enabled)
-            self.pre_delay_spin.setValue(self.current_node.pre_delay)
-            self.post_delay_spin.setValue(self.current_node.post_delay)
-            self.pre_wait_freezes_spin.setValue(self.current_node.pre_wait_freezes)
-            self.post_wait_freezes_spin.setValue(self.current_node.post_wait_freezes)
-            self.focus_check.setChecked(self.current_node.focus)
-
-            # 更新识别算法特有属性
-            self.update_recognition_properties()
-
-            # 更新动作特有属性
-            self.update_action_properties()
-
-            # 根据属性是否存在来自动展开或折叠区域
-            if self.current_node.recognition != "DirectHit":
-                self.recognition_box.set_expanded(True)
-            else:
-                self.recognition_box.set_expanded(False)
-
-            if self.current_node.action not in ["DoNothing", "StopTask"]:
-                self.action_box.set_expanded(True)
-            else:
-                self.action_box.set_expanded(False)
-
-            # 不自动展开流程控制区域，即使有后继节点或中断节点
-            # 以下代码已被移除：
-            # if (self.current_node.next or self.current_node.interrupt or
-            #         self.current_node.on_error):
-            #     self.flow_box.set_expanded(True)
-        finally:
             self.is_updating_ui = False
 
     def update_recognition_properties(self):
@@ -1194,15 +1113,6 @@ class NodePropertiesEditor(QWidget):
                 if custom_param:
                     widget.setText(json.dumps(custom_param, indent=2))
 
-            elif widget_label == "识别区域类型:":
-                roi = getattr(self.current_node, "roi", [0, 0, 0, 0])
-                if roi == [0, 0, 0, 0]:
-                    widget.setCurrentText("全屏")
-                elif isinstance(roi, str):
-                    widget.setCurrentText("其他节点")
-                else:
-                    widget.setCurrentText("固定坐标")
-
     def update_action_properties(self):
         """更新动作特有属性控件 - 优化版"""
         if not self.current_node:
@@ -1225,17 +1135,6 @@ class NodePropertiesEditor(QWidget):
 
         # 处理滑动起点终点控件
         for point_type in ["起点", "终点"]:
-            if f"{point_type}类型:" in widgets:
-                type_combo = widgets[f"{point_type}类型:"]
-                point_key = "begin" if point_type == "起点" else "end"
-                point = getattr(self.current_node, point_key, True)
-                if point is True:
-                    type_combo.setCurrentText("自身")
-                elif isinstance(point, str):
-                    type_combo.setCurrentText("其他节点")
-                elif isinstance(point, list):
-                    type_combo.setCurrentText("固定坐标")
-
             if f"{point_type}:" in widgets:
                 point_edit = widgets[f"{point_type}:"]
                 point_key = "begin" if point_type == "起点" else "end"
@@ -1245,7 +1144,7 @@ class NodePropertiesEditor(QWidget):
 
             if f"{point_type}偏移:" in widgets:
                 offset_edit = widgets[f"{point_type}偏移:"]
-                offset_key = f"{point_key}_offset"
+                offset_key = f"{'begin' if point_type == '起点' else 'end'}_offset"
                 offset = getattr(self.current_node, offset_key, [0, 0, 0, 0])
                 if isinstance(offset, list):
                     offset_edit.setText(str(offset))
@@ -1319,19 +1218,13 @@ class NodePropertiesEditor(QWidget):
             if reply != QMessageBox.Yes:
                 return
 
-        # 更新节点名称
+        # 更新节点属性
         self.current_node.name = self.node_name_input.text()
-
-        # 更新基本属性
         self.current_node.recognition = self.recognition_combo.currentText()
         self.current_node.action = self.action_combo.currentText()
-
-        # 更新流程控制属性
         self.current_node.next = self.next_editor.get_value()
         self.current_node.interrupt = self.interrupt_editor.get_value()
         self.current_node.on_error = self.on_error_editor.get_value()
-
-        # 更新通用属性
         self.current_node.is_sub = self.is_sub_check.isChecked()
         self.current_node.rate_limit = self.rate_limit_spin.value()
         self.current_node.timeout = self.timeout_spin.value()
@@ -1516,14 +1409,14 @@ class NodePropertiesEditor(QWidget):
                         QMessageBox.warning(self, "输入错误", "自定义参数格式不正确，应为JSON格式")
 
     def apply_action_properties(self, silent=False):
-        """应用动作特有属性到节点"""
+        """应用动作特有属性到节点 - 优化版"""
         if not self.current_node:
             return
 
         action_type = self.current_node.action
         widgets = self.action_property_widgets.get(action_type, {})
 
-        # 处理点击目标相关属性 - 直接根据内容解析，不使用类型
+        # 处理点击目标相关属性
         if "点击目标:" in widgets:
             target_edit = widgets["点击目标:"]
             target_text = target_edit.text().strip()
@@ -1564,7 +1457,7 @@ class NodePropertiesEditor(QWidget):
                 if not silent:
                     QMessageBox.warning(self, "输入错误", f"目标偏移坐标格式不正确: {str(e)}")
 
-        # 处理滑动起点和终点相关属性 - 同样直接根据内容解析
+        # 处理滑动起点和终点相关属性
         for point_type, attr_name in [("起点", "begin"), ("终点", "end")]:
             point_key = f"{point_type}:"
             offset_key = f"{point_type}偏移:"
@@ -1609,7 +1502,7 @@ class NodePropertiesEditor(QWidget):
                     if not silent:
                         QMessageBox.warning(self, "输入错误", f"{point_type}偏移坐标格式不正确: {str(e)}")
 
-        # 处理其他特有属性 (保持不变)
+        # 处理其他特有属性
         for widget_label, widget in widgets.items():
             # 跳过已处理的属性
             if (widget_label.startswith("点击目标") or
@@ -1682,7 +1575,7 @@ class NodePropertiesEditor(QWidget):
                         QMessageBox.warning(self, "输入错误", "自定义参数格式不正确，应为JSON格式")
 
     def clear_all_inputs(self):
-        """清空所有输入字段"""
+        """清空所有输入字段 - 优化版"""
         # 清空基本属性
         self.node_name_input.clear()
         self.recognition_combo.setCurrentIndex(0)
@@ -1733,7 +1626,9 @@ class NodePropertiesEditor(QWidget):
                 elif isinstance(widget, QCheckBox):
                     widget.setChecked(False)
 
-        # 折叠所有属性组
+        # 折叠所有属性组，但保持基本属性组展开
+        self.basic_box.set_expanded(True)
+        self.preview_box.set_expanded(False)
         self.flow_box.set_expanded(False)
         self.recognition_box.set_expanded(False)
         self.action_box.set_expanded(False)
@@ -1751,6 +1646,7 @@ class NodePropertiesEditor(QWidget):
             self.update_json_preview()
 
     def update_json_preview(self):
+        """更新JSON预览 - 优化版"""
         if not self.current_node:
             return
 
@@ -1768,10 +1664,11 @@ class NodePropertiesEditor(QWidget):
             self.json_editor.setTextCursor(cursor)
 
         except Exception as e:
-            self.json_error_banner.setText(f"更新json预览失败 JSON: {str(e)}")
+            self.json_error_banner.setText(f"更新json预览失败: {str(e)}")
             self.json_error_banner.show()
 
     def apply_json_to_node(self):
+        """从JSON编辑器应用更改到节点 - 优化版"""
         if not self.current_node:
             return
 
@@ -1792,5 +1689,134 @@ class NodePropertiesEditor(QWidget):
             self.json_error_banner.setText(f"{str(e)}")
             self.json_error_banner.show()
         except Exception as e:
-            self.json_error_banner.setText(f"Error al aplicar JSON: {str(e)}")
+            self.json_error_banner.setText(f"应用JSON出错: {str(e)}")
             self.json_error_banner.show()
+
+    def update_ui_from_node(self):
+        """根据当前节点更新UI控件 - 优化版"""
+        if not self.current_node:
+            return
+
+        self.is_updating_ui = True
+
+        try:
+            # 设置基本属性
+            self.node_name_input.setText(self.current_node.name)
+
+            # 设置识别算法和动作类型
+            recognition_index = self.recognition_combo.findText(self.current_node.recognition)
+            if recognition_index >= 0:
+                self.recognition_combo.setCurrentIndex(recognition_index)
+
+            action_index = self.action_combo.findText(self.current_node.action)
+            if action_index >= 0:
+                self.action_combo.setCurrentIndex(action_index)
+
+            # 设置流程控制属性
+            self.next_editor.set_value(self.current_node.next)
+            self.interrupt_editor.set_value(self.current_node.interrupt)
+            self.on_error_editor.set_value(self.current_node.on_error)
+
+            # 设置通用属性
+            self.is_sub_check.setChecked(self.current_node.is_sub)
+            self.rate_limit_spin.setValue(self.current_node.rate_limit)
+            self.timeout_spin.setValue(self.current_node.timeout)
+            self.inverse_check.setChecked(self.current_node.inverse)
+            self.enabled_check.setChecked(self.current_node.enabled)
+            self.pre_delay_spin.setValue(self.current_node.pre_delay)
+            self.post_delay_spin.setValue(self.current_node.post_delay)
+            self.pre_wait_freezes_spin.setValue(self.current_node.pre_wait_freezes)
+            self.post_wait_freezes_spin.setValue(self.current_node.post_wait_freezes)
+            self.focus_check.setChecked(self.current_node.focus)
+
+            # 更新识别算法特有属性
+            self.update_recognition_properties()
+
+            # 更新动作特有属性
+            self.update_action_properties()
+
+            # 更新节点识别预览
+            self.update_preview_images()
+
+            # 根据属性是否存在来自动展开或折叠区域
+            self.basic_box.set_expanded(True)  # 基本属性始终展开
+
+            if self.current_node.recognition != "DirectHit":
+                self.recognition_box.set_expanded(True)
+            else:
+                self.recognition_box.set_expanded(False)
+
+            if self.current_node.action not in ["DoNothing", "StopTask"]:
+                self.action_box.set_expanded(True)
+            else:
+                self.action_box.set_expanded(False)
+
+            # 根据是否有模板图片来决定是否展开预览框
+            has_template = hasattr(self.current_node, 'template') and self.current_node.template
+            self.preview_box.set_expanded(has_template)
+        finally:
+            self.is_updating_ui = False
+
+    def update_preview_images(self):
+        """更新预览图片容器中的图片"""
+        # 清空当前预览容器中的图片
+        if hasattr(self.image_preview_container, 'image_containers'):
+            # 移除现有图片，但保留"添加"按钮
+            if len(self.image_preview_container.image_containers) > 1:
+                add_button_container = self.image_preview_container.image_containers[-1]
+                for container in self.image_preview_container.image_containers[:-1]:
+                    container.deleteLater()
+                self.image_preview_container.image_containers = [add_button_container]
+                self.image_preview_container.update_layout()
+
+        # 检查节点是否有template属性
+        if not hasattr(self.current_node, 'template') or not self.current_node.template:
+            return
+
+        templates = []
+        # 根据template属性类型处理（可能是单个字符串或字符串列表）
+        if isinstance(self.current_node.template, list):
+            templates = self.current_node.template
+        else:
+            templates = [self.current_node.template]
+
+        # 添加模板图片到预览容器
+        for template_path in templates:
+            if template_path and isinstance(template_path, str):
+                # 假设模板路径是相对于image文件夹的，拼接完整路径
+                # 实际使用时，可能需要根据项目结构调整路径拼接逻辑
+                full_path = template_path
+                if not template_path.startswith('/'):
+                    # 为了预览，假设在当前工作目录的image文件夹下
+                    # 实际使用时可能需要项目根目录或配置的绝对路径
+                    full_path = f"image/{template_path}"
+
+                # 调用预览容器的添加图片方法
+                # 注意：需要修改ImagePreviewContainer.add_image方法以接受图片路径参数
+                self.add_template_to_preview(full_path)
+
+    def add_template_to_preview(self, image_path):
+        """添加模板图片到预览容器"""
+        # 移除旧的"+"按钮容器以添加新图片
+        if hasattr(self.image_preview_container, 'image_containers'):
+            add_button_container = None
+            if self.image_preview_container.image_containers:
+                add_button_container = self.image_preview_container.image_containers.pop()
+
+            # 计算容器宽度
+            container_width = max(50, (self.image_preview_container.viewport().width() -
+                                       (self.image_preview_container.max_columns - 1) * 4) //
+                                  self.image_preview_container.max_columns)
+
+            # 创建新的图片容器并添加图片
+            image_container = ImageContainer(image_path=image_path, initial_width=container_width)
+            image_container.delete_clicked.connect(self.image_preview_container.delete_image)
+            self.image_preview_container.image_containers.append(image_container)
+
+            # 添加回"+"按钮容器
+            if add_button_container:
+                self.image_preview_container.image_containers.append(add_button_container)
+                add_button_container.set_container_size(container_width)
+
+            # 更新布局
+            self.image_preview_container.update_layout()

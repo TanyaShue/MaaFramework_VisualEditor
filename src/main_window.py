@@ -1,3 +1,4 @@
+import json
 import os
 
 from PySide6.QtCore import Qt, Slot, QTimer
@@ -69,63 +70,6 @@ class MainWindow(QMainWindow):
 
         # 恢复应用程序状态
         self.restore_application_state()
-
-    # 添加到MainWindow类的新方法
-    def restore_application_state(self):
-        """从配置恢复应用程序状态。"""
-        try:
-            # 恢复窗口状态（大小、位置、停靠窗口可见性）
-            self.config_manager.restore_window_state(self)
-
-            # 恢复画布状态
-            self.config_manager.restore_canvas_state(self.canvas)
-
-            # 恢复资源库状态
-            self.config_manager.restore_resource_library_state(self.resource_library)
-
-            # 恢复控制器状态
-            self.config_manager.restore_controller_state(self.controller_view)
-
-            # 如果可用，加载上次的项目
-            last_project = self.config_manager.get_last_project()
-            if last_project and os.path.exists(last_project):
-                self.load_project(last_project)
-
-            self.status_label.setText("已从配置恢复应用程序状态")
-        except Exception as e:
-            import traceback
-            print(f"恢复应用程序状态时出错: {str(e)}")
-            print(traceback.format_exc())
-            self.status_label.setText("恢复应用程序状态失败")
-
-    def save_application_state(self):
-        """保存当前应用程序状态到配置。"""
-        try:
-            # 保存窗口状态
-            self.config_manager.save_window_state(self)
-
-            # 保存画布状态
-            self.config_manager.save_canvas_state(self.canvas)
-
-            # 保存资源库状态
-            self.config_manager.save_resource_library_state(self.resource_library)
-
-            # 保存控制器状态
-            self.config_manager.save_controller_state(self.controller_view)
-
-            # 保存项目状态
-            self.config_manager.save_project_state(self)
-
-            # 保存自动保存设置
-            self.config_manager.config["autosave"]["interval"] = self.autosave_timer.interval() // 60000  # 毫秒转分钟
-            self.config_manager.save_config()
-
-            self.status_label.setText("已保存应用程序状态到配置")
-        except Exception as e:
-            import traceback
-            print(f"保存应用程序状态时出错: {str(e)}")
-            print(traceback.format_exc())
-            self.status_label.setText("保存应用程序状态失败")
 
     # 修改MainWindow.closeEvent方法
     def closeEvent(self, event):
@@ -386,7 +330,6 @@ class MainWindow(QMainWindow):
         # 连接节点选择变化信号到属性编辑器
         self.canvas.node_manager.OpenNodeChanged.connect(self.update_property_editor)
         self.canvas.node_manager.OpenNodeChanged.connect(self.controller_view.update_selected_node)
-
 
     def update_property_editor(self):
         """当节点选择改变时更新属性编辑器"""
@@ -842,7 +785,6 @@ class MainWindow(QMainWindow):
 
         self.setWindowTitle(title)
 
-    # 编辑操作
     @Slot()
     def undo(self):
         """撤销操作"""
@@ -909,26 +851,187 @@ class MainWindow(QMainWindow):
             self.canvas.context_menus._snap_to_grid(selected_nodes)
 
     # 项目文件操作方法
+    def restore_application_state(self):
+        """从配置恢复应用程序状态。"""
+        try:
+            # 恢复窗口状态（大小、位置、停靠窗口可见性）
+            self.config_manager.restore_window_state(self)
+
+            # 恢复画布状态（仅视图缩放和位置）
+            self.config_manager.restore_canvas_state(self.canvas)
+
+            # 恢复资源库状态
+            self.config_manager.restore_resource_library_state(self.resource_library)
+
+            # 恢复控制器状态
+            self.config_manager.restore_controller_state(self.controller_view)
+
+            # 如果可用，加载上次的任务文件
+            last_task_file = self.config_manager.get_last_task_file()
+            if last_task_file and os.path.exists(last_task_file):
+                # 使用资源库打开文件
+                self.resource_library.open_resource(last_task_file)
+                self.status_label.setText(f"已加载任务文件: {last_task_file}")
+
+            self.status_label.setText("已从配置恢复应用程序状态")
+        except Exception as e:
+            import traceback
+            print(f"恢复应用程序状态时出错: {str(e)}")
+            print(traceback.format_exc())
+            self.status_label.setText("恢复应用程序状态失败")
+
+    def save_application_state(self):
+        """保存当前应用程序状态到配置。"""
+        try:
+            # 保存窗口状态
+            self.config_manager.save_window_state(self)
+
+            # 保存画布状态（仅视图缩放和位置）
+            self.config_manager.save_canvas_state(self.canvas)
+
+            # 保存资源库状态
+            self.config_manager.save_resource_library_state(self.resource_library)
+
+            # 保存控制器状态
+            self.config_manager.save_controller_state(self.controller_view)
+
+            # 保存项目状态
+            self.config_manager.save_project_state(self)
+
+            # 保存自动保存设置
+            self.config_manager.config["autosave"]["interval"] = self.autosave_timer.interval() // 60000  # 毫秒转分钟
+            self.config_manager.save_config()
+
+            self.status_label.setText("已保存应用程序状态到配置")
+        except Exception as e:
+            import traceback
+            print(f"保存应用程序状态时出错: {str(e)}")
+            print(traceback.format_exc())
+            self.status_label.setText("保存应用程序状态失败")
+
+    @Slot(str)
+    def on_resource_opened(self, file_path):
+        """处理资源文件打开事件"""
+        self.status_label.setText(f"已打开资源: {file_path}")
+
+        # 更新controller view
+        self.controller_view.update_task_file(file_path)
+
+        # 保存当前任务文件路径到配置
+        self.config_manager.save_task_file_state(file_path)
+
+        try:
+            # 从文件加载流水线
+            pipeline = open_pipeline.load_from_file(file_path)
+
+            # 清除画布上的现有内容
+            self.canvas.clear()
+
+            # 创建一个字典来存储任务节点与可视节点的映射关系
+            node_mapping = {}
+
+            # 第一步：创建所有节点
+            for name, task_node in pipeline.nodes.items():
+                # 创建可视化节点
+                visual_node = Node(
+                    id=name,
+                    title=name,
+                    task_node=task_node
+                )
+
+                # 添加节点到画布
+                self.canvas.add_node(visual_node)
+
+                # 存储映射关系
+                node_mapping[name] = visual_node
+
+            # 确定节点位置
+            self._layout_nodes(pipeline, node_mapping)
+
+            # 第二步：创建所有连接
+            for name, task_node in pipeline.nodes.items():
+                source_node = node_mapping[name]
+
+                # 连接 "next" 输出
+                if task_node.next:
+                    next_nodes = task_node.next if isinstance(task_node.next, list) else [task_node.next]
+                    for next_node_name in next_nodes:
+                        if next_node_name in node_mapping:
+                            target_node = node_mapping[next_node_name]
+                            source_port = source_node.get_output_port("next")
+                            target_port = target_node.get_input_port()
+
+                            if source_port and target_port:
+                                self.canvas.command_manager.execute(
+                                    ConnectNodesCommand(source_port, target_port, self.canvas)
+                                )
+
+                # 连接 "on_error" 输出
+                if task_node.on_error:
+                    error_nodes = task_node.on_error if isinstance(task_node.on_error, list) else [task_node.on_error]
+                    for error_node_name in error_nodes:
+                        if error_node_name in node_mapping:
+                            target_node = node_mapping[error_node_name]
+                            source_port = source_node.get_output_port("on_error")
+                            target_port = target_node.get_input_port()
+
+                            if source_port and target_port:
+                                self.canvas.command_manager.execute(
+                                    ConnectNodesCommand(source_port, target_port, self.canvas)
+                                )
+
+                # 连接 "interrupt" 输出
+                if task_node.interrupt:
+                    interrupt_nodes = task_node.interrupt if isinstance(task_node.interrupt, list) else [
+                        task_node.interrupt]
+                    for interrupt_node_name in interrupt_nodes:
+                        if interrupt_node_name in node_mapping:
+                            target_node = node_mapping[interrupt_node_name]
+                            source_port = source_node.get_output_port("interrupt")
+                            target_port = target_node.get_input_port()
+
+                            if source_port and target_port:
+                                self.canvas.command_manager.execute(
+                                    ConnectNodesCommand(source_port, target_port, self.canvas)
+                                )
+
+            # 居中显示所有节点
+            self.canvas.center_on_content()
+
+            self.status_label.setText(f"已加载流水线: {file_path} (共 {len(pipeline.nodes)} 个节点)")
+
+        except Exception as e:
+            self.status_label.setText(f"加载失败: {str(e)}")
+            print(f"加载流水线时出错: {str(e)}")
+
     def load_project(self, path):
         """从文件加载项目
 
         Args:
             path: 项目文件路径
         """
-        # 实现项目加载逻辑
-        # 这是一个示例框架，具体实现需要根据项目文件格式来设计
         try:
-            # 清空当前画布
-            self.canvas.clear()
-
-            # 从文件加载项目数据
-            # 这里需要根据实际的文件格式进行解析
-            # ...
-
             # 更新当前文件路径和未保存标记
             self.current_file_path = path
             self.has_unsaved_changes = False
             self.update_title()
+
+            # 从项目文件中获取任务文件路径
+            try:
+                with open(path, 'r', encoding='utf-8') as f:
+                    project_data = json.load(f)
+
+                # 检查项目文件中是否包含任务文件路径
+                if "task_file" in project_data and os.path.exists(project_data["task_file"]):
+                    # 使用资源库打开任务文件
+                    self.resource_library.open_resource(project_data["task_file"])
+                else:
+                    # 如果项目文件不包含任务文件路径，则清空画布
+                    self.canvas.clear()
+            except Exception as e:
+                print(f"加载项目任务文件时出错: {str(e)}")
+                # 发生错误时清空画布
+                self.canvas.clear()
 
             self.status_label.setText(f"已加载项目：{path}")
             return True
@@ -946,45 +1049,12 @@ class MainWindow(QMainWindow):
         Args:
             path: 保存的文件路径
         """
-        # 实现项目保存逻辑
-        # 这是一个示例框架，具体实现需要根据项目文件格式来设计
-
-        # 1. 收集节点数据
-        nodes_data = []
-        for node in self.canvas.nodes:
-            node_data = {
-                'id': node.id,
-                'title': node.title,
-                'properties': node.get_properties(),
-                'position': {'x': node.pos().x(), 'y': node.pos().y()}
-            }
-            nodes_data.append(node_data)
-
-        # 2. 收集连接数据
-        connections_data = []
-        for conn in self.canvas.connection_manager.connections:
-            source_node = conn.source_port.parent_node
-            target_node = conn.target_port.parent_node
-
-            conn_data = {
-                'source_node_id': source_node.id,
-                'source_port_type': conn.source_port.port_type,
-                'source_port_name': getattr(conn.source_port, 'port_name', ''),
-                'target_node_id': target_node.id,
-                'target_port_type': conn.target_port.port_type,
-                'target_port_name': getattr(conn.target_port, 'port_name', '')
-            }
-            connections_data.append(conn_data)
-
-        # 3. 构建项目数据
+        # 简化项目保存逻辑，只存储基本信息和当前任务文件路径
         project_data = {
-            'version': '1.0',
-            'nodes': nodes_data,
-            'connections': connections_data,
-            # 可以添加其他项目元数据
+            "version": "1.0",
+            "task_file": self.config_manager.get_last_task_file() or ""
         }
 
-        # 4. 序列化并保存到文件
-        import json
+        # 序列化并保存到文件
         with open(path, 'w', encoding='utf-8') as f:
             json.dump(project_data, f, ensure_ascii=False, indent=2)

@@ -401,7 +401,7 @@ class Node(QGraphicsItem):
     def set_task_node(self, task_node):
         """Set or update the TaskNode associated with this Node"""
         self.task_node = task_node
-
+        original_height = self.bounds.height()
         # 强制更新ID，总是使用task_node.name的MD5哈希值前6位
         if task_node and hasattr(task_node, 'name'):
             self.id = hashlib.md5(task_node.name.encode()).hexdigest()[:6].upper()
@@ -422,7 +422,10 @@ class Node(QGraphicsItem):
         if task_node and hasattr(task_node, 'to_dict'):
             for key, value in task_node.to_dict().items():
                 self.signals.propertyChanged.emit(self.id, key, value)
-
+        self.bounds.setHeight(max(original_height, self.bounds.height()))
+        self._update_port_positions()
+        self._update_connections()
+        self.update()
     def get_task_node(self):
         """Return the TaskNode object"""
         return self.task_node

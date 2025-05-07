@@ -53,19 +53,19 @@ class ConfigManager:
             },
             "canvas": {
                 "zoom": 1.0,
-                "position": [0, 0],
-                "nodes": [],
-                "connections": []
+                "position": [0, 0]
+                # 移除节点和连接保存
             },
             "recent_files": {
                 "project": None,
-                "resource_dir": None
+                "resource_dir": None,
+                "current_task_file": None  # 添加当前打开的任务文件路径
             },
             "controller": {
                 "device_type": "ADB",
                 "adb_address": "127.0.0.1:5555",
                 "hwnd": "",
-                "adb_path":"",
+                "adb_path": "",
                 "input_method": 1,
                 "screenshot_method": 1,
                 "connected": False
@@ -161,27 +161,12 @@ class ConfigManager:
             print(traceback.format_exc())
 
     def save_canvas_state(self, canvas):
-        """保存画布状态，包括缩放、位置、节点和连接。"""
+        """保存画布状态，仅包括缩放和位置。"""
         try:
-            # 获取画布的完整状态
-            if hasattr(canvas, 'get_state'):
-                canvas_state = canvas.get_state()
-
-                # 更新配置中的画布状态
-                self.config["canvas"]["zoom"] = canvas_state["transform"]["scale_x"]
-                self.config["canvas"]["position"] = [
-                    canvas_state["center"]["x"],
-                    canvas_state["center"]["y"]
-                ]
-
-                # 保存节点和连接信息
-                self.config["canvas"]["nodes"] = canvas_state["nodes"]
-                self.config["canvas"]["connections"] = canvas_state["connections"]
-            else:
-                # 如果画布没有get_state方法，退回到基本状态保存
-                self.config["canvas"]["zoom"] = canvas.view.transform().m11()
-                center = canvas.view.mapToScene(canvas.view.viewport().rect().center())
-                self.config["canvas"]["position"] = [center.x(), center.y()]
+            # 仅保存基本视图状态（缩放和位置）
+            self.config["canvas"]["zoom"] = canvas.view.transform().m11()
+            center = canvas.view.mapToScene(canvas.view.viewport().rect().center())
+            self.config["canvas"]["position"] = [center.x(), center.y()]
         except Exception as e:
             print(f"保存画布状态时出错: {str(e)}")
             import traceback
@@ -190,9 +175,9 @@ class ConfigManager:
         self.save_config()
 
     def restore_canvas_state(self, canvas):
-        """恢复画布状态，包括节点和连接。"""
+        """恢复画布状态，仅包括缩放和位置。"""
         try:
-            # 首先恢复基本的视图状态（缩放和位置）
+            # 恢复基本的视图状态（缩放和位置）
             zoom = self.config["canvas"]["zoom"]
             pos = self.config["canvas"]["position"]
 
@@ -202,22 +187,6 @@ class ConfigManager:
 
             # 设置位置
             canvas.view.centerOn(pos[0], pos[1])
-
-            # 如果有节点和连接数据，并且画布有restore_state方法，则恢复完整状态
-            if ("nodes" in self.config["canvas"] or "connections" in self.config["canvas"]) and hasattr(canvas,
-                                                                                                        'restore_state'):
-                canvas_state = {
-                    'transform': {
-                        'scale_x': zoom,
-                        'scale_y': zoom,
-                        'dx': 0,
-                        'dy': 0
-                    },
-                    'center': {'x': pos[0], 'y': pos[1]},
-                    'nodes': self.config["canvas"].get("nodes", []),
-                    'connections': self.config["canvas"].get("connections", [])
-                }
-                canvas.restore_state(canvas_state)
 
         except Exception as e:
             print(f"恢复画布状态时出错: {str(e)}")
@@ -251,7 +220,8 @@ class ConfigManager:
             self.config["controller"]["device_type"] = device_type
 
             # 根据设备类型保存不同的地址信息
-            if device_type == "ADB" and hasattr(controller_view, 'adb_address_edit') and hasattr(controller_view,"adb_path_edit"):
+            if device_type == "ADB" and hasattr(controller_view, 'adb_address_edit') and hasattr(controller_view,
+                                                                                                 "adb_path_edit"):
                 self.config["controller"]["adb_address"] = controller_view.adb_address_edit.text()
                 self.config["controller"]["adb_path"] = controller_view.adb_path_edit.text()
             elif device_type == "WIN32" and hasattr(controller_view, 'hwnd_edit'):
@@ -267,6 +237,10 @@ class ConfigManager:
             # 保存连接状态
             if hasattr(controller_view, 'is_connected'):
                 self.config["controller"]["connected"] = controller_view.is_connected
+
+            # 保存当前任务文件路径
+            if hasattr(controller_view, 'current_task_file'):
+                self.config["recent_files"]["current_task_file"] = controller_view.current_task_file
 
             self.save_config()
         except Exception as e:
@@ -315,7 +289,6 @@ class ConfigManager:
                 controller_view.connect_device()
 
         except Exception as e:
-            print(e)
             print(f"恢复控制器状态时出错: {str(e)}")
             import traceback
             print(traceback.format_exc())
@@ -329,6 +302,15 @@ class ConfigManager:
     def get_last_project(self):
         """获取上次打开的项目文件路径。"""
         return self.config["recent_files"]["project"]
+
+    def save_task_file_state(self, file_path):
+        """保存当前打开的任务文件路径。"""
+        self.config["recent_files"]["current_task_file"] = file_path
+        self.save_config()
+
+    def get_last_task_file(self):
+        """获取上次打开的任务文件路径。"""
+        return self.config["recent_files"]["current_task_file"]
 
 
 config_manager = ConfigManager()

@@ -65,7 +65,7 @@ class CollapsibleBox(QWidget):
 
     def set_expanded(self, expanded):
         """设置是否展开此区域"""
-        if self.toggle_button.isChecked() != expanded:
+        if self.toggle_button.isChecked() != expanded and expanded:
             self.toggle_button.setChecked(expanded)
             self.toggle_button.setArrowType(Qt.DownArrow if expanded else Qt.RightArrow)
             self.content_area.setVisible(expanded)

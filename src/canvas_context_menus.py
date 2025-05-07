@@ -1,7 +1,8 @@
 from PySide6.QtCore import QPointF
 from PySide6.QtWidgets import QMenu, QInputDialog, QMessageBox
 
-from src.canvas_commands import AddNodeCommand, DeleteNodesCommand
+from src.canvas_commands import AddNodeCommand, DeleteNodesCommand, DisconnectNodesCommand
+from src.pipeline import TaskNode
 
 
 class ContextMenus:
@@ -111,7 +112,7 @@ class ContextMenus:
         for node_title, node_type in node_types:
             add_node_menu.addAction(node_title).triggered.connect(
                 lambda checked=False, t=node_title, type=node_type:
-                self._add_node(type, t, scene_pos)
+                self._add_node( scene_pos)
             )
 
         menu.addMenu(add_node_menu)
@@ -298,7 +299,6 @@ class ContextMenus:
     def _disconnect_nodes(self, connection):
         """断开节点连接"""
         if hasattr(self.canvas, 'command_manager'):
-            from canvas_commands import DisconnectNodesCommand
             self.canvas.command_manager.execute(DisconnectNodesCommand(connection, self.canvas))
         else:
             self.canvas.remove_connection(connection)
@@ -343,23 +343,43 @@ class ContextMenus:
         self.canvas.view.centerOn(0, 0)
         self.canvas.info_label.setText("视图已重置")
 
-    def _add_node(self, node_type, title, scene_pos):
-        """在指定位置添加新节点"""
+    def _add_node(self, scene_pos):
+        """在指定位置添加新节点
+
+        Args:
+
+            scene_pos: 场景中的位置
+        """
         from src.node_system.node import Node
 
-        # 生成唯一ID
-        base_id = f"{node_type}"
+        # 生成唯一ID格式：nodeXXX
+        base_id = "node"
         node_id = base_id
         suffix = 1
 
         # 检查ID是否已存在，如果存在则添加后缀
         while any(node.id == node_id for node in self.canvas.node_manager.nodes):
-            node_id = f"{base_id}_{suffix}"
+            node_id = f"{base_id}{suffix}"
             suffix += 1
 
-        # 创建新节点
-        new_node = Node(node_id, title)
+        # 处理显示名称："通用节点" 或 "通用节点X"
+        display_title = "通用节点"
+        title_count = 1
 
+        # 检查是否已存在同名节点
+        existing_titles = [node.title for node in self.canvas.node_manager.nodes]
+        while display_title in existing_titles:
+            display_title = f"通用节点{title_count}"
+            title_count += 1
+
+        # 创建新节点
+        new_node = Node(node_id, display_title)
+
+        task_node=TaskNode(display_title)
+
+        new_node.set_task_node(task_node)
+
+        # 设置节点位置并对齐到网格
         grid_size = 20
         snapped_x = round(scene_pos.x() / grid_size) * grid_size
         snapped_y = round(scene_pos.y() / grid_size) * grid_size
@@ -376,7 +396,7 @@ class ContextMenus:
         if hasattr(self.canvas, 'command_manager'):
             self.canvas.command_manager.execute(AddNodeCommand(new_node, self.canvas))
 
-        self.canvas.info_label.setText(f"已添加新节点: {node_id}")
+        self.canvas.info_label.setText(f"已添加新节点: {node_id} ({display_title})")
 
     def _select_all_nodes(self):
         """选择所有节点"""
