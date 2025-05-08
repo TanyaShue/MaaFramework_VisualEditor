@@ -1,19 +1,16 @@
 import json
 import os
 
-from PySide6.QtCore import Qt, Slot, QTimer
+from PySide6.QtCore import Qt, Slot
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (QMainWindow, QDockWidget, QStatusBar, QToolBar,
                                QWidget, QLabel, QPushButton, QHBoxLayout,
                                QMessageBox, QFileDialog)
 
-from src.pipeline import open_pipeline
 from src.views.infinite_canvas import EnhancedInfiniteCanvas
 from src.views.node_library import NodeLibrary
 from src.views.node_properties_editor import NodePropertiesEditor
-from .canvas_commands import ConnectNodesCommand
 from .config_manager import config_manager
-from .node_system.node import Node
 from .views.controller_view import ControllerView
 from .views.resource_library import ResourceLibrary
 
@@ -291,6 +288,15 @@ class MainWindow(QMainWindow):
         # 连接节点选择变化信号到属性编辑器
         self.canvas.node_manager.OpenNodeChanged.connect(self.update_property_editor)
         self.canvas.node_manager.OpenNodeChanged.connect(self.controller_view.update_selected_node)
+        self.canvas.open_node.connect(self.show_properties_dock)
+
+    @Slot()
+    def show_properties_dock(self):
+        dock = self.dock_widgets.get("properties")
+        if dock:
+            dock.setVisible(True)
+            dock.raise_()
+            self.update_dock_status(dock, True)
 
     def update_property_editor(self):
         """当节点选择改变时更新属性编辑器"""
@@ -312,7 +318,6 @@ class MainWindow(QMainWindow):
     def on_properties_changed(self):
         """节点属性更改时的处理方法"""
         self.mark_unsaved_changes()
-
 
     @Slot(QDockWidget, bool)
     def toggle_dock_visibility(self, dock, visible):

@@ -515,7 +515,7 @@ class DeviceImageView(QGraphicsView):
 
         # Different options based on selection state
         if self.is_selection_valid():
-            self.context_menu.addAction("复制选区", self._copy_selection)
+            self.context_menu.addAction("编辑选区", self._edit_selection)
             self.context_menu.addAction("保存选区", self._save_selection)
             self.context_menu.addAction("清除选区", self.clear_selection)
         else:
@@ -541,32 +541,41 @@ class DeviceImageView(QGraphicsView):
         self.context_menu.exec(self.mapToGlobal(pos))
 
     # Context menu actions
-    def _copy_selection(self):
-        """Copy selection to clipboard"""
+    def _edit_selection(self):
+        """将选区截取并更新为当前视图"""
         if not self.is_selection_valid() or not self.original_pixmap:
             return
 
         try:
-            # Get normalized selection
+            # 获取标准化的选区坐标
             norm_rect = self.get_normalized_selection()
             if not norm_rect:
                 return
 
-            # Extract from original pixmap
+            # 从原始图像中提取选区
             pixmap_rect = self.original_pixmap.rect()
             x = int(norm_rect.x() * pixmap_rect.width())
             y = int(norm_rect.y() * pixmap_rect.height())
             w = int(norm_rect.width() * pixmap_rect.width())
             h = int(norm_rect.height() * pixmap_rect.height())
 
-            # Create cropped pixmap
+            # 创建裁剪后的图像
             cropped = self.original_pixmap.copy(x, y, w, h)
 
-            # Copy to clipboard
-            QApplication.clipboard().setPixmap(cropped)
-        except (RuntimeError, AttributeError):
-            # Handle potential errors
-            pass
+            # 更新当前视图，显示裁剪后的图像
+            self.set_image(cropped)
+
+            # 清除选区，因为我们已经裁剪并更新了图像
+            self.clear_selection()
+
+            # 如果有控制器引用，更新状态信息
+            if self.control:
+                print(f"已编辑选区：{w}x{h}")
+
+        except (RuntimeError, AttributeError) as e:
+            # 处理潜在错误
+            print(f"编辑选区时发生错误: {e}")
+
 
     def _save_selection(self):
         """Save selection to file"""

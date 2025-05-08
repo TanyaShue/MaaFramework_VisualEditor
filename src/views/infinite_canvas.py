@@ -1,4 +1,4 @@
-from PySide6.QtCore import Qt, QPointF, QRectF
+from PySide6.QtCore import Qt, QPointF, QRectF, Signal
 from PySide6.QtGui import QPen, QColor, QBrush, QMouseEvent, QWheelEvent, QKeyEvent
 from PySide6.QtWidgets import (QGraphicsView, QGraphicsScene, QLabel, QVBoxLayout,
                                QWidget, QGraphicsRectItem)
@@ -11,6 +11,7 @@ from src.node_system.port import OutputPort, InputPort
 
 
 class EnhancedInfiniteCanvas(QWidget):
+    open_node = Signal()
     def __init__(self, parent=None):
         super().__init__(parent)
         self.layout = QVBoxLayout(self)
@@ -142,6 +143,7 @@ class EnhancedInfiniteCanvas(QWidget):
                 self.node_manager.close_all_nodes()
                 # 打开当前节点（设置蓝色边框）
                 self.node_manager.set_node_open(item, True)
+                self.open_node.emit()
                 self.info_label.setText(f"已打开节点: {item.id}")
                 event.accept()
                 return
@@ -637,39 +639,6 @@ class EnhancedInfiniteCanvas(QWidget):
         self.keyPressEvent = self._key_press_event  # 添加键盘事件
         self.scene.selectionChanged.connect(self._on_selection_changed)
 
-    def get_state(self):
-        """获取画布的当前状态，委托给节点管理器处理节点部分"""
-        try:
-            # 捕获缩放和位置
-            transform = self.view.transform()
-            center = self.view.mapToScene(self.view.viewport().rect().center())
-
-            # 收集所有节点信息和连接信息 - 委托给各自的管理器
-            nodes_data = self.node_manager.get_nodes_state()
-            connections_data = self.connection_manager.get_connections_state()
-
-            return {
-                'transform': {
-                    'scale_x': transform.m11(),
-                    'scale_y': transform.m22(),
-                    'dx': transform.dx(),
-                    'dy': transform.dy()
-                },
-                'center': {'x': center.x(), 'y': center.y()},
-                'nodes': nodes_data,
-                'connections': connections_data
-            }
-        except Exception as e:
-            print(f"获取画布状态时出错: {str(e)}")
-            import traceback
-            print(traceback.format_exc())
-            return {
-                'transform': {'scale_x': 1.0, 'scale_y': 1.0, 'dx': 0, 'dy': 0},
-                'center': {'x': 0, 'y': 0},
-                'nodes': [],
-                'connections': []
-            }
-
     def restore_state(self, state):
         """从保存的状态恢复画布，委托给各管理器处理相应部分"""
         # 首先清除当前内容
@@ -691,19 +660,6 @@ class EnhancedInfiniteCanvas(QWidget):
             # 如果没有变换信息但有中心点，使用中心点
             center = state['center']
             self.view.centerOn(center['x'], center['y'])
-
-    # 节点打开相关的简化方法
-    def open_node(self, node):
-        """将节点标记为'打开'状态（蓝色边框）"""
-        self.node_manager.set_node_open(node, True)
-
-    def close_node(self, node):
-        """将节点标记为'关闭'状态（正常边框）"""
-        self.node_manager.set_node_open(node, False)
-
-    def toggle_node_open(self, node):
-        """切换节点的打开状态"""
-        self.node_manager.toggle_node_open(node)
 
     # 添加文件操作
     def load_file(self, file_path):

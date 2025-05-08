@@ -57,13 +57,11 @@ class ContextMenus:
                 for conn in connections:
                     source_node = conn.start_port.parent_node
                     target_node = conn.end_port.parent_node
-                    print(target_node)
                     # 根据端口类型获取端口名称
-                    source_port_name = getattr(source_node,"task_node",source_node.task_node.name)
-                    target_port_name = getattr(target_node,"task_node",target_node.task_node.name)
-
+                    source_port_name = source_node.task_node.name
+                    target_port_name = target_node.task_node.name
                     # 创建断开连接的动作
-                    connection_label = f"{source_node.id}:{source_port_name} → {target_node.id}:{target_port_name}"
+                    connection_label = f"{source_port_name} → {target_port_name}"
                     disconnect_menu.addAction(connection_label).triggered.connect(
                         lambda checked=False, c=conn: self._disconnect_nodes(c)
                     )
@@ -123,7 +121,7 @@ class ContextMenus:
             lambda: self._select_all_nodes()
         )
 
-        select_by_type_menu = QMenu("按类型选择", menu)
+        select_by_type_menu = QMenu("按名称选择", menu)
 
         # 根据存在的节点类型填充
         node_types_map = {}
@@ -132,6 +130,7 @@ class ContextMenus:
             if node_type not in node_types_map:
                 node_types_map[node_type] = []
             node_types_map[node_type].append(node)
+        print(node_types_map)
 
         for node_type, nodes in node_types_map.items():
             select_by_type_menu.addAction(f"{node_type} ({len(nodes)})").triggered.connect(
@@ -195,7 +194,6 @@ class ContextMenus:
             node_data = {
                 'id': node.id,
                 'title': node.title,
-                'properties': node.get_properties(),
                 'position': node.pos(),
             }
             clipboard_data.append(node_data)
