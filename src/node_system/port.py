@@ -3,6 +3,7 @@ from PySide6.QtGui import QPainter, QColor, QPen, QBrush, QPainterPath, QFont
 from PySide6.QtWidgets import QGraphicsItem
 
 
+
 class Port(QGraphicsItem):
     def __init__(self, parent_node, position, direction, parent=None):
         super().__init__(parent)

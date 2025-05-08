@@ -2,6 +2,7 @@ from PySide6.QtCore import QPointF
 from PySide6.QtWidgets import QMenu, QInputDialog, QMessageBox
 
 from src.canvas_commands import AddNodeCommand, DeleteNodesCommand, DisconnectNodesCommand
+from src.node_system.node import Node
 from src.pipeline import TaskNode
 
 
@@ -130,7 +131,6 @@ class ContextMenus:
             if node_type not in node_types_map:
                 node_types_map[node_type] = []
             node_types_map[node_type].append(node)
-        print(node_types_map)
 
         for node_type, nodes in node_types_map.items():
             select_by_type_menu.addAction(f"{node_type} ({len(nodes)})").triggered.connect(
@@ -239,7 +239,6 @@ class ContextMenus:
 
             # 创建新节点
             new_node = Node(new_id, node_data['title'])
-            new_node.update_properties(node_data['properties'])
 
             # 设置位置
             new_pos = QPointF(
@@ -345,21 +344,8 @@ class ContextMenus:
         """在指定位置添加新节点
 
         Args:
-
             scene_pos: 场景中的位置
         """
-        from src.node_system.node import Node
-
-        # 生成唯一ID格式：nodeXXX
-        base_id = "node"
-        node_id = base_id
-        suffix = 1
-
-        # 检查ID是否已存在，如果存在则添加后缀
-        while any(node.id == node_id for node in self.canvas.node_manager.nodes):
-            node_id = f"{base_id}{suffix}"
-            suffix += 1
-
         # 处理显示名称："通用节点" 或 "通用节点X"
         display_title = "通用节点"
         title_count = 1
@@ -370,11 +356,10 @@ class ContextMenus:
             display_title = f"通用节点{title_count}"
             title_count += 1
 
-        # 创建新节点
-        new_node = Node(node_id, display_title)
+        # 创建新节点 - 不再传递ID参数
+        new_node = Node(title=display_title)
 
-        task_node=TaskNode(display_title)
-
+        task_node = TaskNode(display_title)
         new_node.set_task_node(task_node)
 
         # 设置节点位置并对齐到网格
@@ -394,7 +379,7 @@ class ContextMenus:
         if hasattr(self.canvas, 'command_manager'):
             self.canvas.command_manager.execute(AddNodeCommand(new_node, self.canvas))
 
-        self.canvas.info_label.setText(f"已添加新节点: {node_id} ({display_title})")
+        self.canvas.info_label.setText(f"已添加新节点: {display_title}")
 
     def _select_all_nodes(self):
         """选择所有节点"""

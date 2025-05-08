@@ -44,16 +44,18 @@ class CanvasNodeManager(QObject):
         self.clear()
         try:
             # 使用Pipeline加载文件
-            self.pipeline = self.pipeline.__class__.load_from_file(file_path)
+            self.pipeline.load_from_file(file_path)
 
             # 从Pipeline创建可视化节点
             node_map = {}  # 存储名称到节点的映射
 
-            for name, task_node in self.pipeline.nodes.items():
+            # 使用列表迭代而不是字典项迭代
+            for task_node in self.pipeline.nodes:
                 # 创建视觉节点
                 node = self._create_visual_node_from_task(task_node)
                 self.add_node(node)
-                node_map[name] = node
+                # 使用task_node.name作为键
+                node_map[task_node.name] = node
 
             self._layout_nodes(self.pipeline, node_map)
             # 创建节点间的连接
@@ -62,37 +64,6 @@ class CanvasNodeManager(QObject):
             return True
         except Exception as e:
             print(f"加载文件时出错: {str(e)}")
-            import traceback
-            print(traceback.format_exc())
-            return False
-
-    def save_to_file(self, file_path=None):
-        """
-        保存当前节点到文件。
-
-        参数:
-            file_path: 保存文件的路径
-
-        返回:
-            bool: 成功或失败
-        """
-        if not file_path and not hasattr(self.pipeline, 'current_file'):
-            return False
-
-        try:
-            # 更新Pipeline中的节点数据
-            self._update_pipeline_from_visual()
-
-            # 使用Pipeline保存数据
-            self.pipeline.save_to_file(file_path)
-
-            # 更新当前文件路径
-            if file_path:
-                self.pipeline.current_file = file_path
-
-            return True
-        except Exception as e:
-            print(f"保存文件时出错: {str(e)}")
             import traceback
             print(traceback.format_exc())
             return False
@@ -155,7 +126,7 @@ class CanvasNodeManager(QObject):
             id = f"UNK_{len(self.nodes):03d}"
 
         # 创建未知节点
-        unknown_node = UnknownNode(id=id, title=title)
+        unknown_node = UnknownNode(title=title)
 
         # 设置位置（如果提供）
         if position:
@@ -316,9 +287,6 @@ class CanvasNodeManager(QObject):
         self.selected_nodes.clear()
         self.open_nodes.clear()
 
-        # 清空Pipeline
-        self.pipeline = self.pipeline.__class__()
-
     def get_selected_nodes(self):
         """获取所有选中的节点"""
         return self.selected_nodes.copy()
@@ -344,41 +312,6 @@ class CanvasNodeManager(QObject):
         # 更新所有节点的外观
         for node in self.nodes:
             self._update_node_appearance(node)
-
-    def get_nodes_state(self):
-        """
-        获取所有节点的序列化状态
-
-        返回:
-            list: 包含所有节点状态信息的列表
-        """
-        # 先更新Pipeline
-        self._update_pipeline_from_visual()
-
-        # 使用原始的可视化节点属性
-        nodes_data = []
-
-        for node in self.nodes:
-            try:
-                # 获取节点属性，如果节点有get_properties方法
-                properties = node.get_properties() if hasattr(node, 'get_properties') else {}
-
-                node_data = {
-                    'id': node.id,
-                    'title': node.title,
-                    'properties': properties,
-                    'position': {'x': node.pos().x(), 'y': node.pos().y()}
-                }
-
-                # 如果节点有类型属性，也保存它
-                if hasattr(node, 'node_type'):
-                    node_data['node_type'] = node.node_type
-
-                nodes_data.append(node_data)
-            except Exception as e:
-                print(f"保存节点状态时出错: {str(e)}")
-
-        return nodes_data
 
     def restore_nodes_state(self, nodes_data):
         """
@@ -438,7 +371,6 @@ class CanvasNodeManager(QObject):
             创建的可视化Node实例
         """
         node = Node(
-            id=task_node.name,
             title=task_node.name
         )
 
@@ -454,7 +386,8 @@ class CanvasNodeManager(QObject):
             node_map: 从任务节点名称到可视化节点的映射
         """
         # 遍历所有任务节点
-        for name, task_node in self.pipeline.nodes.items():
+        for task_node in self.pipeline.nodes:
+            name = task_node.name
             if name not in node_map:
                 continue
 
@@ -485,7 +418,7 @@ class CanvasNodeManager(QObject):
                         if conn_type == 'next':
                             unknown_pos = QPointF(source_pos.x() + 500, source_pos.y())
                         elif conn_type == 'on_error':
-                            unknown_pos = QPointF(source_pos.x() + 500, source_pos.y() -300)
+                            unknown_pos = QPointF(source_pos.x() + 500, source_pos.y() - 300)
                         else:  # interrupt
                             unknown_pos = QPointF(source_pos.x() + 500, source_pos.y() - 300)
 
@@ -550,45 +483,6 @@ class CanvasNodeManager(QObject):
 
         return None
 
-    def _update_pipeline_connections(self):
-        """根据可视化连接更新Pipeline中的节点关系"""
-        # 获取所有连接
-        connections = self.connection_manager.get_all_connections()
-
-        # 清除所有节点的next, on_error和interrupt属性
-        for task_node in self.pipeline.nodes.values():
-            task_node.next = []
-            if hasattr(task_node, 'on_error'):
-                task_node.on_error = []
-            if hasattr(task_node, 'interrupt'):
-                task_node.interrupt = []
-
-        # 遍历所有连接，更新节点关系
-        for connection in connections:
-            source_port = connection.source_port
-            target_port = connection.target_port
-
-            if source_port and target_port:
-                source_node_id = source_port.parent_node.id
-                target_node_id = target_port.parent_node.id
-
-                if source_node_id in self.pipeline.nodes and target_node_id in self.pipeline.nodes:
-                    source_task = self.pipeline.nodes[source_node_id]
-
-                    # 根据端口类型确定连接类型
-                    conn_type = getattr(source_port, 'port_type', 'next')
-
-                    # 根据连接类型更新相应的关系
-                    if conn_type == 'next':
-                        self._add_next_node(source_task, target_node_id)
-                    elif conn_type == 'on_error':
-                        self._add_error_node(source_task, target_node_id)
-                    elif conn_type == 'interrupt':
-                        self._add_interrupt_node(source_task, target_node_id)
-                    else:
-                        # 默认添加为next节点
-                        self._add_next_node(source_task, target_node_id)
-
     def _add_next_node(self, task_node, node_name):
         """
         添加下一个节点到任务节点
@@ -652,27 +546,6 @@ class CanvasNodeManager(QObject):
             if node_name not in task_node.interrupt:
                 task_node.interrupt.append(node_name)
 
-    def _update_pipeline_from_visual(self):
-        """将可视化节点的状态更新到Pipeline中的逻辑节点"""
-        self.pipeline = self.pipeline.__class__()
-
-        # 从可视化节点重建Pipeline中的任务节点
-        for node in self.nodes:
-            if hasattr(node, 'task_data'):
-                task_node = TaskNode(node.id, **node.task_data)
-                self.pipeline.add_node(task_node)
-            else:
-                # 如果节点没有关联任务数据，创建基本任务节点
-                task_node = TaskNode(
-                    name=node.id,
-                    recognition="DirectHit",
-                    action="DoNothing"
-                )
-                self.pipeline.add_node(task_node)
-
-        # 更新节点间的连接关系
-        self._update_pipeline_connections()
-
     def validate(self):
         """
         验证当前Pipeline配置
@@ -711,14 +584,16 @@ class CanvasNodeManager(QObject):
         out_edges = {}  # 节点的出边 {node_name: [(to_node, conn_type), ...]}
 
         # 首先收集所有节点，包括引用但未定义的节点
-        all_nodes = set(pipeline.nodes.keys())
+        all_nodes = set(task_node.name for task_node in pipeline.nodes)
+
         # 初始化边信息
         for node_name in all_nodes:
             in_edges[node_name] = []
             out_edges[node_name] = []
 
         # 构建边信息
-        for node_name, task_node in pipeline.nodes.items():
+        for task_node in pipeline.nodes:
+            node_name = task_node.name
             # 处理所有类型的连接
             for conn_type in ['next', 'on_error', 'interrupt']:
                 next_nodes = getattr(task_node, conn_type, None)
@@ -743,13 +618,9 @@ class CanvasNodeManager(QObject):
         # 识别真正的入口节点（没有入边的节点）
         true_entry_nodes = [node for node in all_nodes if not in_edges[node]]
 
-        # 如果没有真正的入口节点（全是循环），则使用pipeline的入口节点
-        if not true_entry_nodes:
-            true_entry_nodes = [node.name for node in pipeline.get_entry_nodes()]
-
-            # 如果仍然没有入口节点，选择任意节点作为入口
-            if not true_entry_nodes and all_nodes:
-                true_entry_nodes = [list(all_nodes)[0]]
+        # 如果没有真正的入口节点（全是循环），选择任意节点作为入口
+        if not true_entry_nodes and all_nodes:
+            true_entry_nodes = [list(all_nodes)[0]]
 
         # 节点层级分配
         node_levels = {}  # {node_name: level}
@@ -876,3 +747,118 @@ class CanvasNodeManager(QObject):
                 x = node_x_positions[node_name] * grid_spacing_x
                 y = node_levels[node_name] * grid_spacing_y
                 visual_node.setPos(x, y)
+
+    def save_to_file(self, file_path=None):
+        """
+        保存当前节点到文件。
+
+        参数:
+            file_path: 保存文件的路径。如果为None，则使用之前加载的文件路径。
+
+        返回:
+            bool: 成功或失败
+        """
+        # 确定保存路径
+        actual_path = file_path or getattr(self.pipeline, 'current_file', None)
+        if not actual_path:
+            print("错误: 未指定保存路径，且无之前加载的文件路径")
+            return False
+
+        try:
+            print(f"正在保存到: {actual_path}")
+            # 将可视化节点更新到Pipeline
+            self._update_pipeline_from_visual()
+
+            # 保存到文件
+            self.pipeline.save_to_file(actual_path)
+
+            # 如果提供了新路径，更新当前文件路径
+            if file_path:
+                self.pipeline.current_file = file_path
+
+            print(f"保存成功: {actual_path}")
+            return True
+        except Exception as e:
+            print(f"保存文件时出错: {e}")
+            import traceback
+            print(traceback.format_exc())
+            return False
+
+    def _update_pipeline_from_visual(self):
+        """
+        将可视化节点的状态更新到Pipeline中的逻辑节点
+
+        这个方法会从当前可视化节点重建Pipeline，包括所有连接和属性
+        """
+        # 创建新的Pipeline实例
+        new_pipeline = self.pipeline.__class__()
+        # 首先，为每个可视化节点创建TaskNode
+        for visual_node in self.nodes:
+            if hasattr(visual_node, 'task_node') and visual_node.task_node:
+                task_node = visual_node.task_node
+                new_pipeline.add_node(task_node)
+                continue
+
+
+        new_pipeline.current_file = getattr(self.pipeline, 'current_file', None)
+        # 替换当前Pipeline
+        self.pipeline = new_pipeline
+
+        return new_pipeline
+
+    def _process_port_connections(self, pipeline, source_id, port, conn_type):
+        """
+        处理端口的所有连接，更新Pipeline中的逻辑连接
+
+        参数:
+            pipeline: 要更新的Pipeline对象
+            source_id: 源节点ID
+            port: 要处理的端口
+            conn_type: 连接类型 ('next', 'on_error', 'interrupt')
+        """
+        if not port or not port.is_connected():
+            return
+
+        # 获取端口的所有连接
+        connections = port.get_connections()
+
+        # 查找源TaskNode
+        source_task = None
+        for task_node in pipeline.nodes:
+            if task_node.name == source_id:
+                source_task = task_node
+                break
+
+        if not source_task:
+            return
+
+        # 获取当前连接的节点列表
+        current_connections = getattr(source_task, conn_type, [])
+        if current_connections and not isinstance(current_connections, list):
+            current_connections = [current_connections]
+        else:
+            current_connections = current_connections or []
+
+        # 创建新的连接列表
+        new_connections = current_connections.copy()
+
+        # 处理所有连接
+        for connection in connections:
+            target_port = connection.get_target_port()
+            if target_port:
+                target_node = target_port.get_parent_node()
+                if target_node and hasattr(target_node, 'id'):
+                    target_id = target_node.id
+                    # 确保目标节点ID不重复添加
+                    if target_id not in new_connections:
+                        new_connections.append(target_id)
+
+        # 更新TaskNode的连接属性
+        if len(new_connections) == 1:
+            # 如果只有一个连接，可以直接存为字符串而不是列表
+            setattr(source_task, conn_type, new_connections[0])
+        elif len(new_connections) > 1:
+            setattr(source_task, conn_type, new_connections)
+        else:
+            # 如果没有连接，确保该属性为空列表或None
+            setattr(source_task, conn_type, None)

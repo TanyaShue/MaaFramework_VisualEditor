@@ -117,9 +117,9 @@ class EnhancedInfiniteCanvas(QWidget):
         threshold = 3
 
         if node_count <= threshold:
-            # 显示全部节点ID
-            node_ids = [node.id for node in selected_nodes]
-            self.info_label.setText(f"已选择 {node_count} 个节点: {', '.join(node_ids)}")
+            # 显示全部节点标题，而不是ID
+            node_titles = [node.title for node in selected_nodes]
+            self.info_label.setText(f"已选择 {node_count} 个节点: {', '.join(node_titles)}")
         else:
             # 当节点数量较多时，只显示数量
             self.info_label.setText(f"已选择 {node_count} 个节点")
@@ -144,7 +144,7 @@ class EnhancedInfiniteCanvas(QWidget):
                 # 打开当前节点（设置蓝色边框）
                 self.node_manager.set_node_open(item, True)
                 self.open_node.emit()
-                self.info_label.setText(f"已打开节点: {item.id}")
+                self.info_label.setText(f"已打开节点: {item.title}")
                 event.accept()
                 return
             elif not item:
@@ -523,9 +523,9 @@ class EnhancedInfiniteCanvas(QWidget):
             threshold = 3
 
             if node_count <= threshold:
-                # 显示全部节点ID
-                node_ids = [node.id for node in selected_nodes]
-                self.info_label.setText(f"已选择 {node_count} 个节点: {', '.join(node_ids)}")
+                # 显示全部节点标题
+                node_titles = [node.title for node in selected_nodes]
+                self.info_label.setText(f"已选择 {node_count} 个节点: {', '.join(node_titles)}")
             else:
                 # 当节点数量较多时，只显示数量
                 self.info_label.setText(f"已选择 {node_count} 个节点")

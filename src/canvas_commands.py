@@ -66,7 +66,6 @@ class DeleteNodesCommand(Command):
             node_info = {
                 'id': node.id,
                 'title': node.title,
-                'properties': node.get_properties(),
                 'position': node.pos(),
                 'connections': []
             }
@@ -118,7 +117,6 @@ class DeleteNodesCommand(Command):
         # 首先重新创建所有节点
         for node_info in self.node_data:
             node = Node(node_info['id'], node_info['title'])
-            node.update_properties(node_info['properties'])
             node.setPos(node_info['position'])
             self.canvas.add_node(node)
             recreated_nodes[node_info['id']] = node
@@ -243,8 +241,6 @@ class CreateUnknownNodeCommand(Command):
             return True
         return False
 
-    def redo(self):
-        return self.execute()
 
 class CommandManager:
     """命令管理器，用于管理撤销/重做栈"""

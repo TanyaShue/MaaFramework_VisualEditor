@@ -126,7 +126,6 @@ class MainWindow(QMainWindow):
         # 确保属性编辑器在前面
         properties_dock.raise_()
 
-        self.resource_library.resource_opened.connect(self.on_resource_opened)
 
     def _create_menu_bar(self):
         menu_bar = self.menuBar()
@@ -192,6 +191,8 @@ class MainWindow(QMainWindow):
         reset_view_action = view_menu.addAction("重置视图")
         reset_view_action.triggered.connect(self.reset_view)
 
+        save_pipeline = view_menu.addAction("保存")
+        save_pipeline.triggered.connect(self._do_save)
         # 添加视图菜单项
         view_menu.addSeparator()
 
@@ -243,6 +244,9 @@ class MainWindow(QMainWindow):
         fit_action = tool_bar.addAction("适应")
         fit_action.triggered.connect(self.canvas.center_on_content)
 
+        save_pipeline = tool_bar.addAction("保存")
+        save_pipeline.triggered.connect(self._do_save)
+
     def _create_status_bar(self):
         status_bar = QStatusBar()
         self.setStatusBar(status_bar)
@@ -289,6 +293,7 @@ class MainWindow(QMainWindow):
         self.canvas.node_manager.OpenNodeChanged.connect(self.update_property_editor)
         self.canvas.node_manager.OpenNodeChanged.connect(self.controller_view.update_selected_node)
         self.canvas.open_node.connect(self.show_properties_dock)
+        self.resource_library.resource_opened.connect(self.on_resource_opened)
 
     @Slot()
     def show_properties_dock(self):
@@ -377,7 +382,7 @@ class MainWindow(QMainWindow):
         """
         try:
             # 调用项目保存逻辑
-            self.save_project_to_file(file_path)
+            self.canvas.save_to_file()
             return True
         except Exception as e:
             QMessageBox.critical(
@@ -472,13 +477,6 @@ class MainWindow(QMainWindow):
             # 恢复控制器状态
             self.config_manager.restore_controller_state(self.controller_view)
 
-            # 如果可用，加载上次的任务文件
-            last_task_file = self.config_manager.get_last_task_file()
-            if last_task_file and os.path.exists(last_task_file):
-                # 使用资源库打开文件
-                self.resource_library.open_resource(last_task_file)
-                self.status_label.setText(f"已加载任务文件: {last_task_file}")
-
             self.status_label.setText("已从配置恢复应用程序状态")
         except Exception as e:
             import traceback
@@ -521,19 +519,3 @@ class MainWindow(QMainWindow):
         except Exception as e:
             self.status_label.setText(f"加载失败: {str(e)}")
             print(f"加载流水线时出错: {str(e)}")
-
-    def save_project_to_file(self, path):
-        """保存项目到文件
-
-        Args:
-            path: 保存的文件路径
-        """
-        # 简化项目保存逻辑，只存储基本信息和当前任务文件路径
-        project_data = {
-            "version": "1.0",
-            "task_file": self.config_manager.get_last_task_file() or ""
-        }
-
-        # 序列化并保存到文件
-        with open(path, 'w', encoding='utf-8') as f:
-            json.dump(project_data, f, ensure_ascii=False, indent=2)

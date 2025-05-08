@@ -7,17 +7,13 @@ from PySide6.QtWidgets import QGraphicsItem
 
 from src.config_manager import config_manager
 from src.node_system.port import InputPort, OutputPort
-
-
-# Signals need to be in a QObject, so we create a helper class
-class NodeSignals(QObject):
-    propertyChanged = Signal(str, str, object)  # node_id, property_name, new_value
+from src.pipeline import TaskNode
 
 
 class Node(QGraphicsItem):
-    def __init__(self, id=None, title="", task_node=None, parent=None, default_image_path="default_image.png"):
+    def __init__(self, title="", task_node=None, parent=None, default_image_path="default_image.png"):
         super().__init__(parent)
-        self.task_node = task_node
+        self.task_node:TaskNode = task_node
 
         # Store config_manager
         self.config_manager = config_manager
@@ -32,15 +28,10 @@ class Node(QGraphicsItem):
                 # Append "image" directory (not "images")
                 self.image_dir = os.path.join(base_dir, "image")
 
-        # 初始化节点ID
-        self._initialize_id(id)
-
         self.title = title
         self.bounds = QRectF(0, 0, 240, 200)  # Make slightly taller for image
         self.header_height = 30
         self.content_start = self.header_height + 10
-        self.signals = NodeSignals()
-
         # Image display settings
         self.image_height = 80  # Height for the image display area
         self.default_image_path = default_image_path
@@ -66,14 +57,6 @@ class Node(QGraphicsItem):
         # Create a collapsed state
         self.collapsed = False
         self.original_height = self.bounds.height()
-
-    def _initialize_id(self, id=None):
-        """初始化节点ID，子类可重写此方法自定义ID生成逻辑"""
-        if self.task_node and hasattr(self.task_node, 'name'):
-            self.id = hashlib.md5(self.task_node.name.encode()).hexdigest()[:6].upper()
-        else:
-            # 仅在task_node不存在或没有name属性时使用传入的id或设置为"UNKNOWN"
-            self.id = id if id else "UNKNOWN"
 
     def _check_template(self):
         """检查是否有template属性，子类可重写以自定义template检测逻辑"""
@@ -206,9 +189,6 @@ class Node(QGraphicsItem):
         # 绘制节点标题栏
         self._paint_header(painter, colors)
 
-        # 绘制节点ID徽章
-        self._paint_id_badge(painter, colors)
-
         # 如果未折叠，绘制内容
         if not self.collapsed:
             # 绘制分隔线
@@ -269,32 +249,12 @@ class Node(QGraphicsItem):
         # 绘制标题文本
         painter.setPen(colors['header_text'])
         painter.setFont(QFont("Arial", 9, QFont.Bold))
-        title_width = self.bounds.width() - 70  # 预留ID徽章的空间
+        title_width = self.bounds.width() - 10  # 使用完整宽度减去内边距
         painter.drawText(
             QRectF(10, 0, title_width, self.header_height),
             Qt.AlignVCenter | Qt.AlignLeft,
             self.title
         )
-
-    def _paint_id_badge(self, painter, colors):
-        """绘制ID徽章"""
-        id_text = f"{self.id}"
-        id_font = QFont("Monospace", 7)
-        painter.setFont(id_font)
-
-        # 计算ID文本的宽度
-        metrics = painter.fontMetrics()
-        id_width = metrics.horizontalAdvance(id_text) + 10  # 添加内边距
-
-        # 绘制ID徽章
-        id_rect = QRectF(self.bounds.width() - id_width - 5, 5, id_width, 20)
-        painter.setPen(Qt.NoPen)
-        painter.setBrush(QColor(30, 30, 30, 150))  # 半透明深色背景
-        painter.drawRoundedRect(id_rect, 10, 10)
-
-        # 绘制ID文本
-        painter.setPen(QColor(220, 220, 220))  # 浅灰色文本
-        painter.drawText(id_rect, Qt.AlignCenter, id_text)
 
     def _paint_separator(self, painter, colors):
         """绘制标题栏和内容区域之间的分隔线"""
@@ -444,16 +404,6 @@ class Node(QGraphicsItem):
         if "interrupt" in self.output_ports:
             self.output_ports["interrupt"].setPos(width, height / 2)
 
-    def itemChange(self, change, value):
-        """Handle item change events"""
-        if change == QGraphicsItem.ItemPositionChange and self.scene():
-            # The ports move with the node as they are children
-            pass
-        elif change == QGraphicsItem.ItemSelectedChange:
-            # Can adjust selection effects here
-            pass
-        return super().itemChange(change, value)
-
     def get_input_port(self):
         return self.input_port
 
@@ -470,9 +420,6 @@ class Node(QGraphicsItem):
         self.task_node = task_node
         original_height = self.bounds.height()
 
-        # 更新ID
-        self._initialize_id()
-
         # 检查template属性
         self._check_template()
 
@@ -480,18 +427,10 @@ class Node(QGraphicsItem):
         self.resize_to_content()  # Adjust size to fit content
         self.update()  # Force redraw
 
-        # Emit signals for properties that changed (for compatibility)
-        if task_node and hasattr(task_node, 'to_dict'):
-            for key, value in task_node.to_dict().items():
-                self.signals.propertyChanged.emit(self.id, key, value)
         self.bounds.setHeight(max(original_height, self.bounds.height()))
         self._update_port_positions()
         self._update_connections()
         self.update()
-
-    def get_task_node(self):
-        """Return the TaskNode object"""
-        return self.task_node
 
     def toggle_collapse(self):
         """Toggle between collapsed (header only) and expanded state"""

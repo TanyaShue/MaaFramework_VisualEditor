@@ -344,28 +344,6 @@ class TaskNode:
 
         return ": ".join(parts)
 
-    def add_next_node(self, node_name: Union[str, List[str]]) -> None:
-        """
-        添加后继节点
-
-        Args:
-            node_name: 要添加的节点名称或节点名称列表
-        """
-        if isinstance(node_name, list):
-            if isinstance(self.next, list):
-                self.next.extend(node_name)
-            else:
-                self.next = [self.next] if self.next else []
-                self.next.extend(node_name)
-        else:
-            if isinstance(self.next, list):
-                self.next.append(node_name)
-            else:
-                if self.next:
-                    self.next = [self.next, node_name]
-                else:
-                    self.next = node_name
-
     def validate(self) -> List[str]:
         """
         验证节点配置是否有效
@@ -503,8 +481,8 @@ class Pipeline:
 
     def __init__(self):
         """初始化流水线对象"""
-        self.nodes: Dict[str, TaskNode] = {}
-        self.from_path = None
+        self.nodes: List[TaskNode] = []
+        self.current_file = None
 
     def add_node(self, node: TaskNode) -> None:
         """
@@ -513,19 +491,7 @@ class Pipeline:
         Args:
             node: 要添加的节点对象
         """
-        self.nodes[node.name] = node
-
-    def get_node(self, name: str) -> Optional[TaskNode]:
-        """
-        获取指定名称的节点
-
-        Args:
-            name: 节点名称
-
-        Returns:
-            节点对象，若不存在则返回None
-        """
-        return self.nodes.get(name)
+        self.nodes.append(node)
 
     def get_nodes_by_recognition(self, recognition_type: str) -> List[TaskNode]:
         """
@@ -537,7 +503,7 @@ class Pipeline:
         Returns:
             使用该识别算法的节点列表
         """
-        return [node for node in self.nodes.values() if node.recognition == recognition_type]
+        return [node for node in self.nodes if node.recognition == recognition_type]
 
     def get_nodes_by_action(self, action_type: str) -> List[TaskNode]:
         """
@@ -549,44 +515,7 @@ class Pipeline:
         Returns:
             使用该执行动作的节点列表
         """
-        return [node for node in self.nodes.values() if node.action == action_type]
-
-    def _collect_referenced_nodes(self, attribute_name: str) -> set:
-        """
-        收集所有被指定属性引用的节点名称
-
-        Args:
-            attribute_name: 属性名称
-
-        Returns:
-            被引用的节点名称集合
-        """
-        referenced = set()
-
-        for node in self.nodes.values():
-            attr_value = getattr(node, attribute_name)
-            if isinstance(attr_value, str):
-                referenced.add(attr_value)
-            elif isinstance(attr_value, list):
-                referenced.update(attr_value)
-
-        return referenced
-
-    def get_entry_nodes(self) -> List[TaskNode]:
-        """
-        获取所有入口节点（没有被其他节点引用的节点）
-
-        Returns:
-            入口节点列表
-        """
-        all_referenced = set()
-
-        # 收集所有被引用的节点
-        for attr in ['next', 'interrupt', 'on_error', 'timeout_next']:
-            all_referenced.update(self._collect_referenced_nodes(attr))
-
-        # 找出没有被引用的节点
-        return [node for name, node in self.nodes.items() if name not in all_referenced]
+        return [node for node in self.nodes if node.action == action_type]
 
     def to_dict(self) -> Dict[str, Dict]:
         """
@@ -595,7 +524,7 @@ class Pipeline:
         Returns:
             包含所有节点的字典
         """
-        return {name: node.to_dict() for name, node in self.nodes.items()}
+        return {node.name: node.to_dict() for node in self.nodes}
 
     def to_json(self, indent: int = 4) -> str:
         """
@@ -607,7 +536,7 @@ class Pipeline:
         Returns:
             流水线的JSON字符串表示
         """
-        return json.dumps(self.to_dict(), indent=indent)
+        return json.dumps(self.to_dict(), ensure_ascii=False, indent=indent)
 
     def save_to_file(self, file_path: str, indent: int = 4) -> None:
         """
@@ -618,7 +547,7 @@ class Pipeline:
             indent: JSON缩进空格数
         """
         with open(file_path, 'w', encoding='utf-8') as f:
-            json.dump(self.to_dict(), f, indent=indent)
+            json.dump(self.to_dict(), f, ensure_ascii=False, indent=indent)
 
     @classmethod
     def from_dict(cls, data: Dict[str, Dict]) -> 'Pipeline':
@@ -650,83 +579,38 @@ class Pipeline:
         """
         return cls.from_dict(json.loads(json_str))
 
-    @classmethod
-    def load_from_file(cls, file_path: str) -> 'Pipeline':
+    def load_from_file(self, file_path: str) -> 'Pipeline':
         """
-        从文件加载流水线
+        从文件加载节点到当前流水线实例中
 
         Args:
             file_path: 文件路径
 
         Returns:
-            流水线对象
+            当前流水线对象（用于方法链式调用）
         """
-        cls.from_path=file_path
-        with open(file_path, 'r', encoding='utf-8') as f:
-            return cls.from_dict(json.load(f))
+        self.current_file = file_path
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                for name, node_data in data.items():
+                    node = TaskNode(name, **node_data)
+                    self.add_node(node)
+            return self
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Invalid JSON file: {e}")
+        except Exception as e:
+            raise IOError(f"Failed to load pipeline from file: {e}")
 
     def __str__(self) -> str:
         """
         返回流水线的字符串表示
 
         Returns:
-            流水线的字符串表示
+            包含所有节点内容的字典的字符串表示
         """
-        if not self.nodes:
-            return "Pipeline: Empty"
-
-        lines = [f"Pipeline with {len(self.nodes)} nodes:"]
-
-        # 获取入口节点
-        entry_nodes = self.get_entry_nodes()
-        if entry_nodes:
-            entry_node_names = [node.name for node in entry_nodes]
-            lines.append(f"Entry nodes: {', '.join(entry_node_names)}")
-
-        # 获取各类型节点统计
-        recognition_types = {}
-        action_types = {}
-
-        for node in self.nodes.values():
-            recognition_types[node.recognition] = recognition_types.get(node.recognition, 0) + 1
-            action_types[node.action] = action_types.get(node.action, 0) + 1
-
-        lines.append("Recognition types:")
-        for rec_type, count in recognition_types.items():
-            lines.append(f"  - {rec_type}: {count}")
-
-        lines.append("Action types:")
-        for act_type, count in action_types.items():
-            lines.append(f"  - {act_type}: {count}")
-
-        # 节点流程关系
-        lines.append("Node relationships:")
-        for name, node in self.nodes.items():
-            # 确定节点的后继关系
-            next_list = []
-            if isinstance(node.next, list):
-                next_list = node.next
-            elif node.next:
-                next_list = [node.next]
-
-            # 确定节点的中断关系
-            interrupt_list = []
-            if isinstance(node.interrupt, list):
-                interrupt_list = node.interrupt
-            elif node.interrupt:
-                interrupt_list = [node.interrupt]
-
-            # 构建关系描述
-            relations = []
-            if next_list:
-                relations.append(f"next → {', '.join(next_list)}")
-            if interrupt_list:
-                relations.append(f"interrupt → {', '.join(interrupt_list)}")
-
-            relation_str = " | ".join(relations) if relations else "terminal node"
-            lines.append(f"  - {name} ({node.recognition}→{node.action}): {relation_str}")
-
-        return "\n".join(lines)
+        nodes_dict = {node.name: node.to_dict() for node in self.nodes}
+        return json.dumps(nodes_dict, ensure_ascii=False, indent=2)
 
     def validate(self) -> Dict[str, List[str]]:
         """
@@ -737,65 +621,10 @@ class Pipeline:
         """
         errors = {}
 
-        for name, node in self.nodes.items():
+        for node in self.nodes:
             node_errors = node.validate()
             if node_errors:
-                errors[name] = node_errors
+                errors[node.name] = node_errors
 
         return errors
-
-    def check_references(self) -> Dict[str, List[str]]:
-        """
-        检查节点间引用是否有效
-
-        Returns:
-            节点名到错误信息列表的映射，空字典表示检查全部通过
-        """
-        errors = {}
-        node_names = set(self.nodes.keys())
-
-        for name, node in self.nodes.items():
-            node_errors = []
-
-            # 检查next引用
-            if isinstance(node.next, str):
-                if node.next and node.next not in node_names:
-                    node_errors.append(f"Next node '{node.next}' not found")
-            elif isinstance(node.next, list):
-                for next_node in node.next:
-                    if next_node and next_node not in node_names:
-                        node_errors.append(f"Next node '{next_node}' not found")
-
-            # 检查interrupt引用
-            if isinstance(node.interrupt, str):
-                if node.interrupt and node.interrupt not in node_names:
-                    node_errors.append(f"Interrupt node '{node.interrupt}' not found")
-            elif isinstance(node.interrupt, list):
-                for interrupt_node in node.interrupt:
-                    if interrupt_node and interrupt_node not in node_names:
-                        node_errors.append(f"Interrupt node '{interrupt_node}' not found")
-
-            # 检查on_error引用
-            if isinstance(node.on_error, str):
-                if node.on_error and node.on_error not in node_names:
-                    node_errors.append(f"On_error node '{node.on_error}' not found")
-            elif isinstance(node.on_error, list):
-                for error_node in node.on_error:
-                    if error_node and error_node not in node_names:
-                        node_errors.append(f"On_error node '{error_node}' not found")
-
-            # 检查timeout_next引用
-            if isinstance(node.timeout_next, str):
-                if node.timeout_next and node.timeout_next not in node_names:
-                    node_errors.append(f"Timeout_next node '{node.timeout_next}' not found")
-            elif isinstance(node.timeout_next, list):
-                for timeout_node in node.timeout_next:
-                    if timeout_node and timeout_node not in node_names:
-                        node_errors.append(f"Timeout_next node '{timeout_node}' not found")
-
-            if node_errors:
-                errors[name] = node_errors
-
-        return errors
-
 open_pipeline=Pipeline()

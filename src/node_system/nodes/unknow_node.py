@@ -43,9 +43,9 @@ class UnknownNode(Node):
 
         return cls._recognition_image
 
-    def __init__(self, id=None, title="Unknown Node", task_node=None, parent=None):
+    def __init__(self, title="Unknown Node", task_node=None, parent=None):
         # 调用父类初始化方法
-        super().__init__(id=id, title=title, task_node=task_node, parent=parent)
+        super().__init__( title=title, task_node=task_node, parent=parent)
 
         # 未知节点总是显示特定图像，所以标记为有模板
         self.has_template = True

@@ -171,10 +171,12 @@ class ResourceLibrary(QWidget):
     def open_resource(self, file_path):
         """Handle opening a resource file."""
         # Store the currently opened file path
+
+        print(f"打开{file_path}")
         self.current_opened_file = str(file_path)
         config_manager.save_resource_library_state(self)
         # Emit the signal
-        self.resource_opened.emit(self.current_opened_file)
+        self.resource_opened.emit(str(self.current_opened_file))
 
     def get_state(self):
         """Get the current state of the resource library.

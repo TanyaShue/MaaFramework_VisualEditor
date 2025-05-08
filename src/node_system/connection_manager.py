@@ -168,7 +168,36 @@ class ConnectionManager:
         if target and hasattr(target, 'connections') and connection in target.connections:
             target.connections.remove(connection)
 
+        def remove_task_name(source_task_node, target_task_node, attr_name):
+            if not target_task_node:
+                return
+
+            name_to_remove = target_task_node.name
+            attr_value = getattr(source_task_node, attr_name, None)
+
+            # 如果是字符串，转换为列表再移除（防止旧结构遗留）
+            if isinstance(attr_value, str):
+                attr_value = [attr_value]
+                setattr(source_task_node, attr_name, attr_value)
+
+            # 从列表中移除
+            if isinstance(attr_value, list) and name_to_remove in attr_value:
+                attr_value.remove(name_to_remove)
+
+        if source and target and target.parent_node.task_node:
+            source_task_node = source.parent_node.task_node
+            target_task_node = target.parent_node.task_node
+
+            if source.port_type == "next":
+                remove_task_name(source_task_node, target_task_node, "next")
+            elif source.port_type == "on_error":
+                remove_task_name(source_task_node, target_task_node, "on_error")
+            elif source.port_type == "interrupt":
+                remove_task_name(source_task_node, target_task_node, "interrupt")
+
+        # 移除连接图形
         self.scene.removeItem(connection)
+
         if connection in self.connections:
             self.connections.remove(connection)
 
@@ -373,6 +402,32 @@ class ConnectionManager:
         # 添加到连接列表
         self.connections.append(connection)
 
+        def append_task_name(source_task_node, target_task_node, attr_name):
+            if not target_task_node:
+                return
+
+            name_to_append = target_task_node.name
+            attr_value = getattr(source_task_node, attr_name, None)
+
+            # 转换为列表（如果是字符串）
+            if isinstance(attr_value, str):
+                attr_value = [attr_value]
+                setattr(source_task_node, attr_name, attr_value)
+
+            # 如果是列表且不重复，则添加
+            if isinstance(attr_value, list) and name_to_append not in attr_value:
+                attr_value.append(name_to_append)
+
+        if target_port.parent_node.task_node:
+            source_task_node = source_port.parent_node.task_node
+            target_task_node = target_port.parent_node.task_node
+
+            if source_port.port_type == "next":
+                append_task_name(source_task_node, target_task_node, "next")
+            elif source_port.port_type == "on_error":
+                append_task_name(source_task_node, target_task_node, "on_error")
+            elif source_port.port_type == "interrupt":
+                append_task_name(source_task_node, target_task_node, "interrupt")
         # 更新连接的路径
         connection.update_path()
 
