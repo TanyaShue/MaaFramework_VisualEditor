@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QLabel, QFormLayout,
                                QScrollArea, QFrame, QMessageBox,
                                QTabWidget, QStackedWidget)
 
+from src.config_manager import config_manager
 from src.pipeline import TaskNode
 from src.views.components.collapsible_box import CollapsibleBox
 from src.views.components.list_editor import ListEditor
@@ -1781,18 +1782,17 @@ class NodePropertiesEditor(QWidget):
             templates = [self.current_node.template]
 
         # 添加模板图片到预览容器
-        for template_path in templates:
-            if template_path and isinstance(template_path, str):
-                # 假设模板路径是相对于image文件夹的，拼接完整路径
-                # 实际使用时，可能需要根据项目结构调整路径拼接逻辑
-                full_path = template_path
-                if not template_path.startswith('/'):
-                    # 为了预览，假设在当前工作目录的image文件夹下
-                    # 实际使用时可能需要项目根目录或配置的绝对路径
-                    full_path = f"image/{template_path}"
+        base_path = config_manager.config["recent_files"]["base_resource_path"]
 
-                # 调用预览容器的添加图片方法
-                # 注意：需要修改ImagePreviewContainer.add_image方法以接受图片路径参数
+        for template_path in templates:
+            if isinstance(template_path, str) and template_path:
+                # 构建完整路径（相对于 image 文件夹）
+                full_path = (
+                    template_path if template_path.startswith('/')
+                    else f"{base_path}/image/{template_path}"
+                )
+
+                # 添加模板到预览
                 self.add_template_to_preview(full_path)
 
     def add_template_to_preview(self, image_path):

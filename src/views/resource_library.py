@@ -5,6 +5,8 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QLabel,
                                QPushButton, QHBoxLayout, QFileDialog,
                                QLineEdit, QMessageBox, QScrollArea)
 
+from src.config_manager import config_manager
+
 
 class ResourceLibrary(QWidget):
     """A dockable resource library panel that displays JSON files from a resource directory."""
@@ -126,6 +128,7 @@ class ResourceLibrary(QWidget):
         # Create list items for each JSON file
         for json_file in json_files:
             self.add_resource_item(pipeline_path, json_file)
+        config_manager.save_resource_library_state(self)
 
         # Update status
         self.status_label.setText(f"已加载 {len(json_files)} 个资源文件")
@@ -169,6 +172,7 @@ class ResourceLibrary(QWidget):
         """Handle opening a resource file."""
         # Store the currently opened file path
         self.current_opened_file = str(file_path)
+        config_manager.save_resource_library_state(self)
         # Emit the signal
         self.resource_opened.emit(self.current_opened_file)
 

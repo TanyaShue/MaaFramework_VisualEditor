@@ -137,22 +137,6 @@ class MainWindow(QMainWindow):
         # 文件菜单
         file_menu = menu_bar.addMenu("文件")
 
-        new_action = file_menu.addAction("新建项目")
-        new_action.setShortcut(QKeySequence.New)
-        new_action.triggered.connect(self.new_project)
-
-        open_action = file_menu.addAction("打开项目")
-        open_action.setShortcut(QKeySequence.Open)
-        open_action.triggered.connect(self.open_project)
-
-        save_action = file_menu.addAction("保存项目")
-        save_action.setShortcut(QKeySequence.Save)
-        save_action.triggered.connect(self.save_project)
-
-        save_as_action = file_menu.addAction("另存为")
-        save_as_action.setShortcut(QKeySequence.SaveAs)
-        save_as_action.triggered.connect(self.save_project_as)
-
         file_menu.addSeparator()
 
         exit_action = file_menu.addAction("退出")
@@ -233,8 +217,6 @@ class MainWindow(QMainWindow):
         align_grid_action.triggered.connect(self.align_nodes_to_grid)
 
         # 使用右键菜单中的其他节点操作来扩展这里
-
-        # MAAFW菜单
         maafw_menu = menu_bar.addMenu("MAAFW")
         maafw_menu.addAction("连接控制器")
         maafw_menu.addAction("断开连接")
@@ -244,16 +226,6 @@ class MainWindow(QMainWindow):
     def _create_tool_bar(self):
         tool_bar = QToolBar("主工具栏")
         self.addToolBar(tool_bar)
-
-        # 添加工具栏按钮并连接动作
-        new_action = tool_bar.addAction("新建")
-        new_action.triggered.connect(self.new_project)
-
-        open_action = tool_bar.addAction("打开")
-        open_action.triggered.connect(self.open_project)
-
-        save_action = tool_bar.addAction("保存")
-        save_action.triggered.connect(self.save_project)
 
         tool_bar.addSeparator()
 
@@ -342,9 +314,6 @@ class MainWindow(QMainWindow):
         self.mark_unsaved_changes()
 
 
-
-
-
     @Slot(QDockWidget, bool)
     def toggle_dock_visibility(self, dock, visible):
         """切换停靠窗口的可见性"""
@@ -392,108 +361,6 @@ class MainWindow(QMainWindow):
         self.canvas.view.centerOn(0, 0)
         self.status_label.setText("视图已重置")
 
-    @Slot()
-    def new_project(self):
-        """创建新项目"""
-        # 检查是否有未保存的更改
-        if self.has_unsaved_changes:
-            reply = QMessageBox.question(
-                self,
-                "未保存的更改",
-                "有未保存的更改，是否保存？",
-                QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel,
-                QMessageBox.Save
-            )
-
-            if reply == QMessageBox.Save:
-                if not self.save_project():
-                    # 保存失败或取消，则不创建新项目
-                    return
-            elif reply == QMessageBox.Cancel:
-                # 取消操作
-                return
-
-        # 清空画布
-        self.canvas.clear()
-
-        # 重置当前文件路径和未保存标记
-        self.current_file_path = None
-        self.has_unsaved_changes = False
-        self.update_title()
-
-        self.status_label.setText("已创建新项目")
-
-    @Slot()
-    def open_project(self):
-        """打开项目文件"""
-        # 检查是否有未保存的更改
-        if self.has_unsaved_changes:
-            reply = QMessageBox.question(
-                self,
-                "未保存的更改",
-                "有未保存的更改，是否保存？",
-                QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel,
-                QMessageBox.Save
-            )
-
-            if reply == QMessageBox.Save:
-                if not self.save_project():
-                    # 保存失败或取消，则不打开新项目
-                    return
-            elif reply == QMessageBox.Cancel:
-                # 取消操作
-                return
-
-        # 打开文件对话框
-        file_path, _ = QFileDialog.getOpenFileName(
-            self,
-            "打开项目",
-            "",
-            "MaaFramework 项目文件 (*.maa);;所有文件 (*)"
-        )
-
-        if file_path:
-            self.load_project(file_path)
-
-    @Slot()
-    def save_project(self):
-        """保存项目"""
-        if not self.current_file_path:
-            return self.save_project_as()
-
-        # 执行保存操作
-        success = self._do_save(self.current_file_path)
-
-        if success:
-            self.has_unsaved_changes = False
-            self.update_title()
-            self.status_label.setText(f"项目已保存至 {self.current_file_path}")
-
-        return success
-
-    @Slot()
-    def save_project_as(self):
-        """项目另存为"""
-        file_path, _ = QFileDialog.getSaveFileName(
-            self,
-            "保存项目",
-            "",
-            "MaaFramework 项目文件 (*.maa);;所有文件 (*)"
-        )
-
-        if file_path:
-            success = self._do_save(file_path)
-
-            if success:
-                self.current_file_path = file_path
-                self.has_unsaved_changes = False
-                self.update_title()
-                self.status_label.setText(f"项目已保存至 {file_path}")
-
-            return success
-
-        return False
-
     def _do_save(self, file_path):
         """执行实际的保存操作
 
@@ -517,23 +384,7 @@ class MainWindow(QMainWindow):
 
     def mark_unsaved_changes(self):
         """标记有未保存的更改"""
-        if not self.has_unsaved_changes:
-            self.has_unsaved_changes = True
-            self.update_title()
-
-    def update_title(self):
-        """更新窗口标题以反映当前文件和保存状态"""
-        title = "MaaFramework Visual Editor"
-
-        if self.current_file_path:
-            import os
-            filename = os.path.basename(self.current_file_path)
-            title = f"{filename} - {title}"
-
-        if self.has_unsaved_changes:
-            title = f"*{title}"
-
-        self.setWindowTitle(title)
+        pass
 
     @Slot()
     def undo(self):
@@ -645,9 +496,6 @@ class MainWindow(QMainWindow):
             # 保存控制器状态
             self.config_manager.save_controller_state(self.controller_view)
 
-            # 保存项目状态
-            self.config_manager.save_project_state(self)
-
             # 保存自动保存设置
             self.config_manager.save_config()
 
@@ -668,45 +516,6 @@ class MainWindow(QMainWindow):
         except Exception as e:
             self.status_label.setText(f"加载失败: {str(e)}")
             print(f"加载流水线时出错: {str(e)}")
-
-    def load_project(self, path):
-        """从文件加载项目
-
-        Args:
-            path: 项目文件路径
-        """
-        try:
-            # 更新当前文件路径和未保存标记
-            self.current_file_path = path
-            self.has_unsaved_changes = False
-            self.update_title()
-
-            # 从项目文件中获取任务文件路径
-            try:
-                with open(path, 'r', encoding='utf-8') as f:
-                    project_data = json.load(f)
-
-                # 检查项目文件中是否包含任务文件路径
-                if "task_file" in project_data and os.path.exists(project_data["task_file"]):
-                    # 使用资源库打开任务文件
-                    self.resource_library.open_resource(project_data["task_file"])
-                else:
-                    # 如果项目文件不包含任务文件路径，则清空画布
-                    self.canvas.clear()
-            except Exception as e:
-                print(f"加载项目任务文件时出错: {str(e)}")
-                # 发生错误时清空画布
-                self.canvas.clear()
-
-            self.status_label.setText(f"已加载项目：{path}")
-            return True
-        except Exception as e:
-            QMessageBox.critical(
-                self,
-                "加载失败",
-                f"加载项目时发生错误：\n{str(e)}"
-            )
-            return False
 
     def save_project_to_file(self, path):
         """保存项目到文件

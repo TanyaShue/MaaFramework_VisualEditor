@@ -271,16 +271,6 @@ class ConfigManager:
             import traceback
             print(traceback.format_exc())
 
-    def save_project_state(self, main_window):
-        """保存当前打开的项目。"""
-        if main_window.current_file_path:
-            self.config["recent_files"]["project"] = main_window.current_file_path
-        self.save_config()
-
-    def get_last_project(self):
-        """获取上次打开的项目文件路径。"""
-        return self.config["recent_files"]["project"]
-
     def save_task_file_state(self, file_path):
         """保存当前打开的任务文件路径。"""
         self.config["recent_files"]["current_task_file"] = file_path

@@ -3,12 +3,9 @@ from PySide6.QtGui import QPen, QColor, QBrush, QMouseEvent, QWheelEvent, QKeyEv
 from PySide6.QtWidgets import (QGraphicsView, QGraphicsScene, QLabel, QVBoxLayout,
                                QWidget, QGraphicsRectItem)
 
-# 导入命令模式实现
 from src.canvas_commands import CommandManager, MoveNodesCommand, ConnectNodesCommand
-# 导入右键菜单实现
 from src.canvas_context_menus import ContextMenus
 from src.node_system.canvas_node_manager import CanvasNodeManager
-# 导入节点系统
 from src.node_system.node import Node
 from src.node_system.port import OutputPort, InputPort
 

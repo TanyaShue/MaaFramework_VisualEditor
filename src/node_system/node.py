@@ -121,33 +121,13 @@ class Node(QGraphicsItem):
             # 处理template是字符串的情况
             elif isinstance(template, str):
                 image_path = template
-
-        # 如果从template没有获取到路径，按照原来的逻辑尝试其他属性
-        if not image_path:
-            # Try different possible ways the image path might be stored
-            if hasattr(self.task_node, 'recognition') and isinstance(self.task_node.recognition, str):
-                # If recognition itself is a path or contains path information
-                image_path = self.task_node.recognition
-
-            # Check if there's an image_path in algorithm properties
-            elif hasattr(self.task_node, 'get_algorithm_property'):
-                possible_keys = ['image_path', 'imagePath', 'image', 'recognition_image']
-                for key in possible_keys:
-                    path = self.task_node.get_algorithm_property(key)
-                    if path:
-                        image_path = path
-                        break
-
-        # Try to load the image if a path was found
-        if image_path:
-            # Check if the path is relative and needs to be combined with image_dir
-            if self.image_dir and not os.path.isabs(image_path):
-                full_image_path = os.path.join(self.image_dir, image_path)
-            else:
-                full_image_path = image_path
+        base_path = config_manager.config["recent_files"]["base_resource_path"]
+        full_path = os.path.join(base_path, "image", image_path)
+        # Try to load the image if a path was
+        if full_path:
 
             try:
-                self.recognition_image = QPixmap(full_image_path)
+                self.recognition_image = QPixmap(full_path)
                 if self.recognition_image.isNull():
                     self.recognition_image = self.default_image
             except:
