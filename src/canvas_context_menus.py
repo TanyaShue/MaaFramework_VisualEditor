@@ -57,7 +57,7 @@ class ContextMenus:
                 for conn in connections:
                     source_node = conn.start_port.parent_node
                     target_node = conn.end_port.parent_node
-
+                    print(target_node)
                     # 根据端口类型获取端口名称
                     source_port_name = getattr(source_node,"task_node",source_node.task_node.name)
                     target_port_name = getattr(target_node,"task_node",target_node.task_node.name)

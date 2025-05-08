@@ -31,12 +31,9 @@ class Node(QGraphicsItem):
                 base_dir = os.path.dirname(resource_dir)
                 # Append "image" directory (not "images")
                 self.image_dir = os.path.join(base_dir, "image")
-        # 根据task_node.name计算MD5作为ID - 不再使用传入的id参数，总是计算一个新的
-        if self.task_node and hasattr(self.task_node, 'name'):
-            self.id = hashlib.md5(self.task_node.name.encode()).hexdigest()[:6].upper()
-        else:
-            # 仅在task_node不存在或没有name属性时使用传入的id或设置为"UNKNOWN"
-            self.id = id if id else "UNKNOWN"
+
+        # 初始化节点ID
+        self._initialize_id(id)
 
         self.title = title
         self.bounds = QRectF(0, 0, 240, 200)  # Make slightly taller for image
@@ -52,8 +49,7 @@ class Node(QGraphicsItem):
         self.has_template = False  # 标记是否有template属性
 
         # 检查是否有template属性
-        if self.task_node and hasattr(self.task_node, 'template') and self.task_node.template:
-            self.has_template = True
+        self._check_template()
 
         self._load_images()  # Load images
 
@@ -62,12 +58,29 @@ class Node(QGraphicsItem):
         self.setFlag(QGraphicsItem.ItemIsMovable)
         self.setFlag(QGraphicsItem.ItemSendsGeometryChanges)
 
-        # Initialize ports
+        # 初始化端口 - 抽象为单独方法便于子类重写
+        self.input_port = None
+        self.output_ports = {}
         self._initialize_ports()
 
         # Create a collapsed state
         self.collapsed = False
         self.original_height = self.bounds.height()
+
+    def _initialize_id(self, id=None):
+        """初始化节点ID，子类可重写此方法自定义ID生成逻辑"""
+        if self.task_node and hasattr(self.task_node, 'name'):
+            self.id = hashlib.md5(self.task_node.name.encode()).hexdigest()[:6].upper()
+        else:
+            # 仅在task_node不存在或没有name属性时使用传入的id或设置为"UNKNOWN"
+            self.id = id if id else "UNKNOWN"
+
+    def _check_template(self):
+        """检查是否有template属性，子类可重写以自定义template检测逻辑"""
+        if self.task_node and hasattr(self.task_node, 'template') and self.task_node.template:
+            self.has_template = True
+        else:
+            self.has_template = False
 
     def _load_images(self):
         """Load the default image and check for template attribute"""
@@ -91,12 +104,9 @@ class Node(QGraphicsItem):
         self.recognition_image = self.default_image
 
         # 检查task_node是否有template属性，并且属性有值
-        if self.task_node and hasattr(self.task_node, 'template') and self.task_node.template:
-            self.has_template = True
+        if self.has_template:
             # 如果有template属性，加载对应的图像
             self._load_recognition_image()
-        else:
-            self.has_template = False
 
     def _load_recognition_image(self):
         """Load the recognition image from the task_node"""
@@ -144,18 +154,33 @@ class Node(QGraphicsItem):
                 self.recognition_image = self.default_image
 
     def _initialize_ports(self):
-        # Calculate width and height for positioning
-        width = self.bounds.width()
-        height = self.bounds.height()
+        """
+        初始化节点的所有端口
+        将过程拆分为创建输入和输出端口两个方法，方便子类重写
+        """
+        # 初始化输入端口
+        self._initialize_input_ports()
 
-        # Create input port at the top center
+        # 初始化输出端口
+        self._initialize_output_ports()
+
+    def _initialize_input_ports(self):
+        """初始化输入端口，子类可重写此方法自定义输入端口逻辑"""
+        width = self.bounds.width()
+
+        # 创建输入端口（顶部中心）
         self.input_port = InputPort(
             self,
             QPointF(width / 2, 0),
             self
         )
 
-        # Create output ports
+    def _initialize_output_ports(self):
+        """初始化输出端口，子类可重写此方法自定义输出端口逻辑"""
+        width = self.bounds.width()
+        height = self.bounds.height()
+
+        # 创建输出端口字典
         self.output_ports = {}
 
         # "next" output port at bottom center
@@ -183,48 +208,86 @@ class Node(QGraphicsItem):
         )
 
     def paint(self, painter, option, widget):
-        # Set rendering hints for smoother appearance
+        """
+        绘制节点的界面。将绘制过程分为几个逻辑组件以便子类重写
+        """
+        # 设置渲染提示以获取更平滑的外观
         painter.setRenderHint(QPainter.Antialiasing)
 
-        # 增强的颜色方案，提高视觉效果
-        header_color = QColor(60, 120, 190)  # 蓝色标题栏
-        body_color = QColor(240, 240, 240)  # 浅灰色主体
-        border_color = QColor(30, 60, 90) if not self.isSelected() else QColor(255, 165, 0)  # 深蓝色边框或橙色（选中时）
-        text_color = QColor(255, 255, 255)  # 标题栏的白色文本
-        shadow_color = QColor(50, 50, 50, 40)  # 半透明阴影
+        # 定义颜色 - 子类可重写这些颜色
+        colors = self._get_node_colors()
 
-        # 添加阴影效果
+        # 绘制节点阴影
+        self._paint_shadow(painter, colors)
+
+        # 绘制节点主体
+        self._paint_body(painter, colors)
+
+        # 绘制节点标题栏
+        self._paint_header(painter, colors)
+
+        # 绘制节点ID徽章
+        self._paint_id_badge(painter, colors)
+
+        # 如果未折叠，绘制内容
+        if not self.collapsed:
+            # 绘制分隔线
+            self._paint_separator(painter, colors)
+
+            # 根据是否有template属性选择不同的显示方式
+            if self.has_template:
+                self._paint_template_content(painter, colors)
+            else:
+                self._paint_properties_content(painter, colors)
+
+    def _get_node_colors(self):
+        """获取节点的颜色方案，子类可重写以更改颜色"""
+        return {
+            'header': QColor(60, 120, 190),  # 蓝色标题栏
+            'body': QColor(240, 240, 240),  # 浅灰色主体
+            'border': QColor(30, 60, 90) if not self.isSelected() else QColor(255, 165, 0),  # 深蓝色边框或橙色（选中时）
+            'header_text': QColor(255, 255, 255),  # 标题栏的白色文本
+            'shadow': QColor(50, 50, 50, 40),  # 半透明阴影
+            'property_title': QColor(60, 60, 60),  # 属性标题颜色
+            'property_value': QColor(80, 80, 80),  # 属性值颜色
+            'separator': QColor(100, 100, 100)  # 分隔线颜色
+        }
+
+    def _paint_shadow(self, painter, colors):
+        """绘制节点阴影"""
         painter.save()
         shadow_rect = self.bounds.adjusted(4, 4, 4, 4)
         painter.setPen(Qt.NoPen)
-        painter.setBrush(QBrush(shadow_color))
+        painter.setBrush(QBrush(colors['shadow']))
         painter.drawRoundedRect(shadow_rect, 5, 5)
         painter.restore()
 
-        # Draw the main body
-        painter.setPen(QPen(border_color, 1.5))
-        painter.setBrush(QBrush(body_color))
+    def _paint_body(self, painter, colors):
+        """绘制节点主体"""
+        painter.setPen(QPen(colors['border'], 1.5))
+        painter.setBrush(QBrush(colors['body']))
 
-        # Draw rounded rectangle
+        # 绘制圆角矩形
         path = QPainterPath()
         path.addRoundedRect(self.bounds, 5, 5)
         painter.drawPath(path)
 
-        # Draw header
+    def _paint_header(self, painter, colors):
+        """绘制节点标题栏"""
         header_rect = QRectF(0, 0, self.bounds.width(), self.header_height)
         header_path = QPainterPath()
         header_path.addRoundedRect(header_rect, 5, 5)
 
-        # Create a clip to make only the top corners rounded
+        # 创建裁剪区域使只有顶部角为圆形
         painter.save()
         painter.setClipPath(header_path)
         painter.setPen(Qt.NoPen)
-        painter.setBrush(QBrush(header_color))
+        painter.setBrush(QBrush(colors['header']))
         painter.drawRect(header_rect)
         painter.restore()
 
-        # Draw the title
-        painter.setPen(text_color)
+        # 绘制标题文本
+        painter.setPen(colors['header_text'])
         painter.setFont(QFont("Arial", 9, QFont.Bold))
         title_width = self.bounds.width() - 70  # 预留ID徽章的空间
         painter.drawText(
@@ -233,8 +296,9 @@ class Node(QGraphicsItem):
             self.title
         )
 
-        # 绘制ID，采用徽章样式增强显示效果
-        id_text = f"{self.id}"  # 确保使用self.id而不是其他值
+    def _paint_id_badge(self, painter, colors):
+        """绘制ID徽章"""
+        id_text = f"{self.id}"
         id_font = QFont("Monospace", 7)
         painter.setFont(id_font)
 
@@ -252,35 +316,35 @@ class Node(QGraphicsItem):
         painter.setPen(QColor(220, 220, 220))  # 浅灰色文本
         painter.drawText(id_rect, Qt.AlignCenter, id_text)
 
-        # If not collapsed, draw content section
-        if not self.collapsed:
-            painter.setPen(QPen(QColor(100, 100, 100), 0.5))
-            y_pos = self.header_height
-            painter.drawLine(0, y_pos, self.bounds.width(), y_pos)
+    def _paint_separator(self, painter, colors):
+        """绘制标题栏和内容区域之间的分隔线"""
+        painter.setPen(QPen(colors['separator'], 0.5))
+        y_pos = self.header_height
+        painter.drawLine(0, y_pos, self.bounds.width(), y_pos)
 
-            # 根据是否有template属性选择不同的显示方式
-            if self.has_template:
-                # 有template属性，显示图像
-                if self.recognition_image and not self.recognition_image.isNull():
-                    img_size = min(self.bounds.width() - 30, self.bounds.height() - self.content_start - 20)
-                    img_rect = QRectF(
-                        (self.bounds.width() - img_size) / 2,  # 水平居中
-                        self.content_start,
-                        img_size,
-                        img_size
-                    )
+    def _paint_template_content(self, painter, colors):
+        """绘制包含模板图像的内容"""
+        if self.recognition_image and not self.recognition_image.isNull():
+            img_size = min(self.bounds.width() - 30, self.bounds.height() - self.content_start - 20)
+            img_rect = QRectF(
+                (self.bounds.width() - img_size) / 2,  # 水平居中
+                self.content_start,
+                img_size,
+                img_size
+            )
 
-                    # 图像周围添加一个微妙的框
-                    painter.setPen(QPen(QColor(180, 180, 180), 1))
-                    painter.setBrush(Qt.NoBrush)
-                    painter.drawRect(img_rect)
+            # 图像周围添加一个微妙的框
+            painter.setPen(QPen(QColor(180, 180, 180), 1))
+            painter.setBrush(Qt.NoBrush)
+            painter.drawRect(img_rect)
 
-                    # 绘制图像
-                    painter.drawPixmap(img_rect.toRect(), self.recognition_image)
-            else:
-                # 没有template属性，显示节点详情
-                if self.task_node:
-                    self._draw_properties(painter)
+            # 绘制图像
+            painter.drawPixmap(img_rect.toRect(), self.recognition_image)
+
+    def _paint_properties_content(self, painter, colors):
+        """绘制节点属性内容"""
+        if self.task_node:
+            self._draw_properties(painter)
 
     def _draw_properties(self, painter):
         """单独的方法来绘制节点属性，仅在没有template属性时使用"""
@@ -291,23 +355,7 @@ class Node(QGraphicsItem):
         property_value_color = QColor(80, 80, 80)
 
         # Display key TaskNode properties
-        properties_to_display = []
-
-        # Add essential properties
-        if hasattr(self.task_node, 'recognition'):
-            properties_to_display.append(("Recognition", self.task_node.recognition))
-
-        if hasattr(self.task_node, 'action'):
-            properties_to_display.append(("Action", self.task_node.action))
-
-        if hasattr(self.task_node, 'enabled'):
-            properties_to_display.append(("Enabled", str(self.task_node.enabled)))
-
-        # Add important algorithm properties
-        if hasattr(self.task_node, '_algorithm_properties'):
-            for key, value in self.task_node._algorithm_properties.items():
-                if isinstance(value, (str, int, float, bool)):
-                    properties_to_display.append((key, str(value)))
+        properties_to_display = self._get_properties_to_display()
 
         # Draw the properties with enhanced styling
         for key, value in properties_to_display:
@@ -344,6 +392,28 @@ class Node(QGraphicsItem):
 
             y_pos += 30  # 增加属性之间的间距
 
+    def _get_properties_to_display(self):
+        """获取要显示的属性列表，子类可重写此方法自定义属性显示"""
+        properties_to_display = []
+
+        # Add essential properties
+        if hasattr(self.task_node, 'recognition'):
+            properties_to_display.append(("Recognition", self.task_node.recognition))
+
+        if hasattr(self.task_node, 'action'):
+            properties_to_display.append(("Action", self.task_node.action))
+
+        if hasattr(self.task_node, 'enabled'):
+            properties_to_display.append(("Enabled", str(self.task_node.enabled)))
+
+        # Add important algorithm properties
+        if hasattr(self.task_node, '_algorithm_properties'):
+            for key, value in self.task_node._algorithm_properties.items():
+                if isinstance(value, (str, int, float, bool)):
+                    properties_to_display.append((key, str(value)))
+
+        return properties_to_display
+
     def boundingRect(self):
         return self.bounds
 
@@ -365,17 +435,34 @@ class Node(QGraphicsItem):
                     connection.update_path()
 
     def _update_port_positions(self):
-        # Update port positions based on current bounds
+        """
+        更新所有端口位置
+        将这个方法拆分为更新输入和输出端口两部分，方便子类重写
+        """
+        # 更新输入端口位置
+        self._update_input_port_positions()
+
+        # 更新输出端口位置
+        self._update_output_port_positions()
+
+    def _update_input_port_positions(self):
+        """更新输入端口位置，子类可重写"""
+        if self.input_port:
+            width = self.bounds.width()
+            self.input_port.setPos(width / 2, 0)
+
+    def _update_output_port_positions(self):
+        """更新输出端口位置，子类可重写"""
         width = self.bounds.width()
         height = self.bounds.height()
 
-        # Update input port position
-        self.input_port.setPos(width / 2, 0)
-
-        # Update output port positions
-        self.output_ports["next"].setPos(width / 2, height)
-        self.output_ports["on_error"].setPos(0, height / 2)
-        self.output_ports["interrupt"].setPos(width, height / 2)
+        # 更新输出端口位置
+        if "next" in self.output_ports:
+            self.output_ports["next"].setPos(width / 2, height)
+        if "on_error" in self.output_ports:
+            self.output_ports["on_error"].setPos(0, height / 2)
+        if "interrupt" in self.output_ports:
+            self.output_ports["interrupt"].setPos(width, height / 2)
 
     def itemChange(self, change, value):
         """Handle item change events"""
@@ -402,17 +489,12 @@ class Node(QGraphicsItem):
         """Set or update the TaskNode associated with this Node"""
         self.task_node = task_node
         original_height = self.bounds.height()
-        # 强制更新ID，总是使用task_node.name的MD5哈希值前6位
-        if task_node and hasattr(task_node, 'name'):
-            self.id = hashlib.md5(task_node.name.encode()).hexdigest()[:6].upper()
-        else:
-            self.id = "UNKNOWN"  # 如果无法计算MD5，使用"UNKNOWN"作为ID
 
-        # 检查是否有template属性
-        if task_node and hasattr(task_node, 'template') and task_node.template:
-            self.has_template = True
-        else:
-            self.has_template = False
+        # 更新ID
+        self._initialize_id()
+
+        # 检查template属性
+        self._check_template()
 
         self._load_images()  # 重新加载图像
         self.resize_to_content()  # Adjust size to fit content
@@ -469,19 +551,7 @@ class Node(QGraphicsItem):
             content_height = self.content_start + img_size + 20  # 图像加一些内边距
         else:
             # 如果没有template属性，则需要更多的空间来显示属性
-            property_count = 0
-            if self.task_node:
-                # 计算属性数量
-                if hasattr(self.task_node, 'recognition'):
-                    property_count += 1
-                if hasattr(self.task_node, 'action'):
-                    property_count += 1
-                if hasattr(self.task_node, 'enabled'):
-                    property_count += 1
-                if hasattr(self.task_node, '_algorithm_properties'):
-                    property_count += len([k for k, v in self.task_node._algorithm_properties.items()
-                                           if isinstance(v, (str, int, float, bool))])
-
+            property_count = len(self._get_properties_to_display())
             properties_height = property_count * 30 + 20  # 每个属性行加内边距
             content_height = self.content_start + properties_height
 

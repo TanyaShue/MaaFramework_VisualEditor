@@ -57,9 +57,9 @@ class ConfigManager:
                 # 移除节点和连接保存
             },
             "recent_files": {
-                "project": None,
-                "resource_dir": None,
-                "current_task_file": None  # 添加当前打开的任务文件路径
+                "base_resource_path": None,  # Base resource directory (without pipeline)
+                "pipeline_path": None,  # Full path to pipeline directory
+                "current_opened_file": None  # Currently opened resource file path
             },
             "controller": {
                 "device_type": "ADB",
@@ -69,10 +69,6 @@ class ConfigManager:
                 "input_method": 1,
                 "screenshot_method": 1,
                 "connected": False
-            },
-            "autosave": {
-                "enabled": True,
-                "interval": 5  # 分钟
             }
         }
 
@@ -193,24 +189,6 @@ class ConfigManager:
             import traceback
             print(traceback.format_exc())
 
-    def save_resource_library_state(self, resource_library):
-        """保存资源库状态。"""
-        if resource_library.current_path:
-            self.config["recent_files"]["resource_dir"] = resource_library.current_path
-        self.save_config()
-
-    def restore_resource_library_state(self, resource_library):
-        """恢复资源库状态。"""
-        try:
-            if self.config["recent_files"]["resource_dir"]:
-                parent_dir = os.path.dirname(self.config["recent_files"]["resource_dir"])
-                resource_library.path_input.setText(parent_dir)
-                resource_library.load_resources()
-        except Exception as e:
-            print(f"恢复资源库状态时出错: {str(e)}")
-            import traceback
-            print(traceback.format_exc())
-
     def save_controller_state(self, controller_view):
         """保存控制器视图状态。"""
         try:
@@ -308,9 +286,35 @@ class ConfigManager:
         self.config["recent_files"]["current_task_file"] = file_path
         self.save_config()
 
+    def save_resource_library_state(self, resource_library):
+        """Save resource library state."""
+        if resource_library.base_resource_path:
+            self.config["recent_files"]["base_resource_path"] = resource_library.base_resource_path
+
+        if resource_library.pipeline_path:
+            self.config["recent_files"]["pipeline_path"] = resource_library.pipeline_path
+
+        if resource_library.current_opened_file:
+            self.config["recent_files"]["current_opened_file"] = resource_library.current_opened_file
+
+        self.save_config()
+
+    def restore_resource_library_state(self, resource_library):
+        """Restore resource library state."""
+        try:
+            state = {
+                "base_resource_path": self.config["recent_files"]["base_resource_path"],
+                "pipeline_path": self.config["recent_files"]["pipeline_path"],
+                "current_opened_file": self.config["recent_files"]["current_opened_file"]
+            }
+
+            resource_library.restore_state(state)
+        except Exception as e:
+            print(f"Error restoring resource library state: {str(e)}")
+            import traceback
+            print(traceback.format_exc())
+
     def get_last_task_file(self):
-        """获取上次打开的任务文件路径。"""
-        return self.config["recent_files"]["current_task_file"]
-
-
+        """Get the last opened task file path."""
+        return self.config["recent_files"]["current_opened_file"]
 config_manager = ConfigManager()

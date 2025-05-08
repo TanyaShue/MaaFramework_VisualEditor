@@ -41,6 +41,9 @@ class ControllerView(QWidget):
         super().__init__(parent)
 
         # 初始化状态变量
+        self.file_name = None
+        self.device_view = None
+        self.selected_node_name = None
         self.found_devices = []
         self.select_device = None
         self.selection_mode = False
@@ -223,7 +226,7 @@ class ControllerView(QWidget):
         right_layout.addLayout(toolbar_layout)
 
         # 创建并添加设备图像视图
-        self.device_view = DeviceImageView()
+        self.device_view = DeviceImageView(control=self)
         self.device_view.selectionChanged.connect(self.on_selection_changed)
         self.device_view.selectionCleared.connect(self.on_selection_cleared)
         right_layout.addWidget(self.device_view)
@@ -402,10 +405,14 @@ class ControllerView(QWidget):
 
     def update_selected_node(self, node):
         """更新已选中节点的标签"""
-        if not node:
-            self.selected_node_label.setText("选中节点: 未选择")
-        else:
-            self.selected_node_label.setText(f"选中节点:")
+        try:
+            self.selected_node_name = node[0].task_node.name
+            label_text = f"选中节点:{self.selected_node_name}"
+        except (IndexError, AttributeError, TypeError):
+            self.selected_node_name = None
+            label_text = "选中节点: 未选择"
+
+        self.selected_node_label.setText(label_text)
 
     def update_task_file(self, file_path):
         """更新打开文件的标签，只显示文件名"""
@@ -413,5 +420,5 @@ class ControllerView(QWidget):
             self.task_file_label.setText("打开文件: 未选择")
         else:
             # 提取文件路径中的文件名部分
-            file_name = os.path.basename(file_path)
-            self.task_file_label.setText(f"打开文件: {file_name}")
+            self.file_name = os.path.basename(file_path)
+            self.task_file_label.setText(f"打开文件: { self.file_name}")

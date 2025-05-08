@@ -1,3 +1,6 @@
+import os
+from datetime import datetime
+
 from PIL.Image import Image
 from PIL.ImageQt import QImage
 from PySide6.QtCore import Qt, Signal, QPoint, QRectF, QPointF, QTimer
@@ -108,9 +111,9 @@ class DeviceImageView(QGraphicsView):
     selectionChanged = Signal(QRectF)
     selectionCleared = Signal()
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None,control=None):
         super().__init__(parent)
-
+        self.control=control
         # Setup the view
         self.setRenderHint(QPainter.Antialiasing, True)
         self.setRenderHint(QPainter.SmoothPixmapTransform, True)
@@ -521,7 +524,7 @@ class DeviceImageView(QGraphicsView):
 
         # Common options
         self.context_menu.addSeparator()
-        self.context_menu.addAction(f"选择模式: {'开' if self.selection_mode else '关'}",
+        self.context_menu.addAction(f"框选模式: {'开' if self.selection_mode else '关'}",
                                     lambda: self.toggle_selection_mode(not self.selection_mode))
 
         # 添加缩放选项
@@ -591,20 +594,6 @@ class DeviceImageView(QGraphicsView):
             # 2. Current task file name (if available)
             # 3. Current timestamp
 
-            # Find the parent ControllerView to access node and file information
-            from datetime import datetime
-            import os
-
-            parent = self
-            controller = None
-
-            # Navigate up the widget hierarchy to find the ControllerView
-            while parent:
-                if hasattr(parent, 'selected_node_label') and hasattr(parent, 'task_file_label'):
-                    controller = parent
-                    break
-                parent = parent.parent()
-
             # Helper function to check if a file exists and create unique name
             def get_unique_filename(base_name, ext='.png'):
                 """Get a unique filename by adding numeric suffix if needed"""
@@ -626,47 +615,30 @@ class DeviceImageView(QGraphicsView):
                     counter += 1
 
             # Determine base filename (without numeric suffix)
-            base_filename = None
+            if self.control:
+                base_filename = self.control.selected_node_name or self.control.file_name
+            else:
+                base_filename = None
 
-            if controller:
-                # Check if there's a selected node
-                node_text = controller.selected_node_label.text()
-                if "未选择" not in node_text:
-                    # Extract node name from "选中节点: [node_name]"
-                    node_name = node_text.split(": ", 1)[1] if ": " in node_text else None
-                    if node_name:
-                        base_filename = node_name
-
-                # If no node name, try using task filename
-                if not base_filename:
-                    file_text = controller.task_file_label.text()
-                    if "未选择" not in file_text:
-                        # Extract file name from "打开文件: [filename]"
-                        file_name = file_text.split(": ", 1)[1] if ": " in file_text else None
-                        if file_name:
-                            # Remove extension if present
-                            base_filename = os.path.splitext(file_name)[0] + "_selection"
-
-            # Fall back to timestamp if no other name is available
+            # Use timestamp as default if no base filename is available
             if not base_filename:
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                base_filename = f"selection_{timestamp}"
+                base_filename = f"selection_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
-            # Get unique filename with numeric suffix if needed
+            # 获取带有数字后缀的唯一文件名（如果需要）
             filename = get_unique_filename(base_filename)
 
-            # Save to program directory (current working directory)
+            # 保存到程序目录（当前工作目录）
             current_dir = os.getcwd()
             save_path = os.path.join(current_dir, filename)
 
             try:
                 cropped.save(save_path)
-                # If we had access to a status bar or notification system, we could show a message here
+                # 如果有访问状态栏或通知系统的权限，可以在这里显示消息
                 print(f"Selection saved to {save_path}")
             except Exception as e:
                 print(f"Error saving selection: {e}")
 
-                # Try saving to user's home directory as fallback
+                # 尝试保存到用户主目录作为备选方案
                 try:
                     import pathlib
                     home_dir = str(pathlib.Path.home())
@@ -675,8 +647,9 @@ class DeviceImageView(QGraphicsView):
                     print(f"Selection saved to fallback location: {save_path}")
                 except Exception as e2:
                     print(f"Error saving to fallback location: {e2}")
-        except (RuntimeError, AttributeError):
-            # Handle potential errors
+        except Exception as e:
+            # 处理潜在错误，添加更好的错误日志
+            print(f"Exception in _save_selection: {e}")
             pass
 
     def _select_all(self):

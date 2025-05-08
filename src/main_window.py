@@ -59,15 +59,6 @@ class MainWindow(QMainWindow):
         # 设置未保存更改标记
         self.has_unsaved_changes = False
 
-        # 设置自动保存定时器并根据配置进行设置
-        self.autosave_timer = QTimer(self)
-        autosave_config = self.config_manager.config["autosave"]
-        if autosave_config["enabled"]:
-            interval = autosave_config["interval"] * 60000  # 将分钟转换为毫秒
-            self.autosave_timer.setInterval(interval)
-            self.autosave_timer.timeout.connect(self.auto_save)
-            self.autosave_timer.start()
-
         # 恢复应用程序状态
         self.restore_application_state()
 
@@ -96,8 +87,6 @@ class MainWindow(QMainWindow):
         # 保存应用程序状态（包括窗口位置、大小、停靠窗口状态等）
         self.save_application_state()
 
-        # 停止自动保存定时器
-        self.autosave_timer.stop()
         event.accept()
 
     def _create_docks(self):
@@ -526,17 +515,6 @@ class MainWindow(QMainWindow):
             )
             return False
 
-    @Slot()
-    def auto_save(self):
-        """自动保存项目"""
-        if self.has_unsaved_changes and self.current_file_path:
-            try:
-                self._do_save(self.current_file_path + ".autosave")
-                self.status_label.setText(f"项目已自动保存")
-            except Exception as e:
-                # 自动保存失败仅记录，不显示错误消息
-                print(f"自动保存失败: {str(e)}")
-
     def mark_unsaved_changes(self):
         """标记有未保存的更改"""
         if not self.has_unsaved_changes:
@@ -671,7 +649,6 @@ class MainWindow(QMainWindow):
             self.config_manager.save_project_state(self)
 
             # 保存自动保存设置
-            self.config_manager.config["autosave"]["interval"] = self.autosave_timer.interval() // 60000  # 毫秒转分钟
             self.config_manager.save_config()
 
             self.status_label.setText("已保存应用程序状态到配置")
@@ -691,100 +668,6 @@ class MainWindow(QMainWindow):
         except Exception as e:
             self.status_label.setText(f"加载失败: {str(e)}")
             print(f"加载流水线时出错: {str(e)}")
-    # @Slot(str)
-    # def on_resource_opened(self, file_path):
-    #     """处理资源文件打开事件"""
-    #     self.status_label.setText(f"已打开资源: {file_path}")
-    #
-    #     # 更新controller view
-    #     self.controller_view.update_task_file(file_path)
-    #
-    #     # 保存当前任务文件路径到配置
-    #     self.config_manager.save_task_file_state(file_path)
-    #
-    #     try:
-    #         # 从文件加载流水线
-    #         pipeline = open_pipeline.load_from_file(file_path)
-    #
-    #         # 清除画布上的现有内容
-    #         self.canvas.clear()
-    #
-    #         # 创建一个字典来存储任务节点与可视节点的映射关系
-    #         node_mapping = {}
-    #
-    #         # 第一步：创建所有节点
-    #         for name, task_node in pipeline.nodes.items():
-    #             # 创建可视化节点
-    #             visual_node = Node(
-    #                 id=name,
-    #                 title=name,
-    #                 task_node=task_node
-    #             )
-    #
-    #             # 添加节点到画布
-    #             self.canvas.add_node(visual_node)
-    #
-    #             # 存储映射关系
-    #             node_mapping[name] = visual_node
-    #
-    #         # 确定节点位置
-    #         self._layout_nodes(pipeline, node_mapping)
-    #
-    #         # 第二步：创建所有连接
-    #         for name, task_node in pipeline.nodes.items():
-    #             source_node = node_mapping[name]
-    #
-    #             # 连接 "next" 输出
-    #             if task_node.next:
-    #                 next_nodes = task_node.next if isinstance(task_node.next, list) else [task_node.next]
-    #                 for next_node_name in next_nodes:
-    #                     if next_node_name in node_mapping:
-    #                         target_node = node_mapping[next_node_name]
-    #                         source_port = source_node.get_output_port("next")
-    #                         target_port = target_node.get_input_port()
-    #
-    #                         if source_port and target_port:
-    #                             self.canvas.command_manager.execute(
-    #                                 ConnectNodesCommand(source_port, target_port, self.canvas)
-    #                             )
-    #
-    #             # 连接 "on_error" 输出
-    #             if task_node.on_error:
-    #                 error_nodes = task_node.on_error if isinstance(task_node.on_error, list) else [task_node.on_error]
-    #                 for error_node_name in error_nodes:
-    #                     if error_node_name in node_mapping:
-    #                         target_node = node_mapping[error_node_name]
-    #                         source_port = source_node.get_output_port("on_error")
-    #                         target_port = target_node.get_input_port()
-    #
-    #                         if source_port and target_port:
-    #                             self.canvas.command_manager.execute(
-    #                                 ConnectNodesCommand(source_port, target_port, self.canvas)
-    #                             )
-    #
-    #             # 连接 "interrupt" 输出
-    #             if task_node.interrupt:
-    #                 interrupt_nodes = task_node.interrupt if isinstance(task_node.interrupt, list) else [
-    #                     task_node.interrupt]
-    #                 for interrupt_node_name in interrupt_nodes:
-    #                     if interrupt_node_name in node_mapping:
-    #                         target_node = node_mapping[interrupt_node_name]
-    #                         source_port = source_node.get_output_port("interrupt")
-    #                         target_port = target_node.get_input_port()
-    #
-    #                         if source_port and target_port:
-    #                             self.canvas.command_manager.execute(
-    #                                 ConnectNodesCommand(source_port, target_port, self.canvas)
-    #                             )
-    #
-    #         # 居中显示所有节点
-    #         self.canvas.center_on_content()
-    #
-    #         self.status_label.setText(f"已加载流水线: {file_path} (共 {len(pipeline.nodes)} 个节点)")
-    #
-    #     except Exception as e:
-    #         self.status_label.setText(f"加载失败: {str(e)}")
-    #         print(f"加载流水线时出错: {str(e)}")
 
     def load_project(self, path):
         """从文件加载项目

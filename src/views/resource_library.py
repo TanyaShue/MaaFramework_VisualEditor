@@ -16,6 +16,10 @@ class ResourceLibrary(QWidget):
         super().__init__(parent)
 
         # Create main layout
+        self.base_resource_path = None  # Base resource directory (without pipeline)
+        self.pipeline_path = None  # Full path to the pipeline subdirectory
+        self.current_opened_file = None  # Path to the currently opened file
+
         self.main_layout = QVBoxLayout(self)
         self.main_layout.setContentsMargins(8, 8, 8, 8)
 
@@ -63,7 +67,6 @@ class ResourceLibrary(QWidget):
         self.main_layout.addWidget(self.status_label)
 
         # Initialize variables
-        self.current_path = None
         self.resource_items = []
 
     @Slot()
@@ -91,9 +94,12 @@ class ResourceLibrary(QWidget):
             QMessageBox.warning(self, "路径错误", f"路径不存在: {path}")
             return
 
+        # Store the base resource path (without pipeline)
+        self.base_resource_path = path
+
         # Check for resource subdirectory
-        resource_path = os.path.join(path, "pipeline")
-        if not os.path.exists(resource_path) or not os.path.isdir(resource_path):
+        pipeline_path = os.path.join(path, "pipeline")
+        if not os.path.exists(pipeline_path) or not os.path.isdir(pipeline_path):
             QMessageBox.warning(
                 self,
                 "无效的资源库",
@@ -102,13 +108,16 @@ class ResourceLibrary(QWidget):
             self.status_label.setText("无效的资源库")
             return
 
+        # Update the pipeline path
+        self.pipeline_path = pipeline_path
+
         # Clear previous resources
         self.clear_resources()
 
-        # Find all JSON files in the resource directory
-        json_files = [f for f in os.listdir(resource_path)
+        # Find all JSON files in the pipeline directory
+        json_files = [f for f in os.listdir(pipeline_path)
                       if f.lower().endswith('.json') and
-                      os.path.isfile(os.path.join(resource_path, f))]
+                      os.path.isfile(os.path.join(pipeline_path, f))]
 
         if not json_files:
             self.status_label.setText("未找到JSON资源文件")
@@ -116,11 +125,10 @@ class ResourceLibrary(QWidget):
 
         # Create list items for each JSON file
         for json_file in json_files:
-            self.add_resource_item(resource_path, json_file)
+            self.add_resource_item(pipeline_path, json_file)
 
         # Update status
         self.status_label.setText(f"已加载 {len(json_files)} 个资源文件")
-        self.current_path = resource_path
 
     def add_resource_item(self, resource_path, filename):
         """Add a resource item to the list with an open button."""
@@ -159,43 +167,49 @@ class ResourceLibrary(QWidget):
     @Slot(str)
     def open_resource(self, file_path):
         """Handle opening a resource file."""
-        self.resource_opened.emit(str(file_path))
-    # 在ResourceLibrary类中添加以下方法
+        # Store the currently opened file path
+        self.current_opened_file = str(file_path)
+        # Emit the signal
+        self.resource_opened.emit(self.current_opened_file)
 
     def get_state(self):
-        """获取资源库的当前状态信息。
+        """Get the current state of the resource library.
 
         Returns:
-            dict: 包含当前目录和加载的资源的状态字典
+            dict: A dictionary containing the current state
         """
         state = {
-            "current_path": self.current_path,
+            "base_resource_path": self.base_resource_path,
+            "pipeline_path": self.pipeline_path,
+            "current_opened_file": self.current_opened_file,
             "loaded_resources": []
         }
 
-        # 收集已加载的资源
-        if self.current_path:
-            resource_path = os.path.join(os.path.dirname(self.current_path), "pipeline")
-            if os.path.exists(resource_path):
-                for resource_item in self.resource_items:
-                    # 查找label以获取文件名
-                    for child in resource_item.children():
-                        if isinstance(child, QLabel):
-                            state["loaded_resources"].append(child.text())
-                            break
+        # Collect loaded resources
+        if self.pipeline_path and os.path.exists(self.pipeline_path):
+            for resource_item in self.resource_items:
+                # Find the label to get the filename
+                for child in resource_item.children():
+                    if isinstance(child, QLabel):
+                        state["loaded_resources"].append(child.text())
+                        break
 
         return state
 
     def restore_state(self, state):
-        """从保存的状态恢复资源库。
+        """Restore the resource library from a saved state.
 
         Args:
-            state (dict): 包含要恢复的状态信息的字典
+            state (dict): Dictionary containing the state to restore
         """
-        if "current_path" in state and state["current_path"]:
-            self.current_path = state["current_path"]
-            parent_dir = os.path.dirname(self.current_path)
-            self.path_input.setText(parent_dir)
+        # Restore base path and pipeline path
+        if "base_resource_path" in state and state["base_resource_path"]:
+            self.base_resource_path = state["base_resource_path"]
+            self.path_input.setText(self.base_resource_path)
+            # Load resources from the restored path
             self.load_resources()
 
-            # 如果需要恢复特定资源的选择状态，可以在这里实现
+            # Restore currently opened file if available
+            if "current_opened_file" in state and state["current_opened_file"]:
+                if os.path.exists(state["current_opened_file"]):
+                    self.open_resource(state["current_opened_file"])
