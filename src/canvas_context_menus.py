@@ -192,7 +192,6 @@ class ContextMenus:
         clipboard_data = []
         for node in nodes:
             node_data = {
-                'id': node.id,
                 'title': node.title,
                 'position': node.pos(),
             }

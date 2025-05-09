@@ -61,45 +61,43 @@ class DeleteNodesCommand(Command):
         self.canvas = canvas
         self.node_data = []  # 存储节点数据以便恢复
 
-        for node in nodes:
-            # 保存节点数据
-            node_info = {
-                'id': node.id,
-                'title': node.title,
-                'position': node.pos(),
-                'connections': []
-            }
-
-            # 保存连接信息
-            # 输入端口的连接
-            input_port = node.get_input_port()
-            if input_port and input_port.is_connected():
-                for conn in input_port.get_connections():
-                    source_node = conn.source_port.parent_node
-                    node_info['connections'].append({
-                        'source_node_id': source_node.id,
-                        'source_port_type': conn.source_port.port_type,
-                        'source_port_name': getattr(conn.source_port, 'port_name', ''),
-                        'is_input': True
-                    })
-
-            # 输出端口的连接
-            output_ports = node.get_output_ports()
-            if isinstance(output_ports, dict):
-                output_ports = list(output_ports.values())
-
-            for port in output_ports:
-                for conn in port.get_connections():
-                    target_node = conn.target_port.parent_node
-                    node_info['connections'].append({
-                        'target_node_id': target_node.id,
-                        'target_port_type': conn.target_port.port_type,
-                        'target_port_name': getattr(conn.target_port, 'port_name', ''),
-                        'is_input': False,
-                        'source_port_name': getattr(port, 'port_name', '')
-                    })
-
-            self.node_data.append(node_info)
+        # for node in nodes:
+        #     # 保存节点数据
+        #     node_info = {
+        #         'title': node.title,
+        #         'position': node.pos(),
+        #         'connections': []
+        #     }
+        #
+        #     # 保存连接信息
+        #     # 输入端口的连接
+        #     input_port = node.get_input_port()
+        #     if input_port and input_port.is_connected():
+        #         for conn in input_port.get_connections():
+        #             source_node = conn.source_port.parent_node
+        #             node_info['connections'].append({
+        #                 'source_node_id': source_node.id,
+        #                 'source_port_type': conn.source_port.port_type,
+        #                 'source_port_name': getattr(conn.source_port, 'port_name', ''),
+        #                 'is_input': True
+        #             })
+        #
+        #     # 输出端口的连接
+        #     output_ports = node.get_output_ports()
+        #     if isinstance(output_ports, dict):
+        #         output_ports = list(output_ports.values())
+        #
+        #     for port in output_ports:
+        #         for conn in port.get_connections():
+        #             target_node = conn.start_port.parent_node
+        #             node_info['connections'].append({
+        #                 'target_port_type': conn.target_port.port_type,
+        #                 'target_port_name': getattr(conn.target_port, 'port_name', ''),
+        #                 'is_input': False,
+        #                 'source_port_name': getattr(port, 'port_name', '')
+        #             })
+        #
+        #     self.node_data.append(node_info)
 
     def execute(self):
         """执行删除命令"""

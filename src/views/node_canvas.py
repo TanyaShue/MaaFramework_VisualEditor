@@ -10,7 +10,7 @@ from src.node_system.node import Node
 from src.node_system.port import OutputPort, InputPort
 
 
-class EnhancedInfiniteCanvas(QWidget):
+class NodeCanvas(QWidget):
     open_node = Signal()
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -321,7 +321,7 @@ class EnhancedInfiniteCanvas(QWidget):
                         if connection:
                             port_name = getattr(target_port, "port_name", "输入")
                             self.info_label.setText(
-                                f"已创建从 {source_port.parent_node.id} 到 {target_port.parent_node.id} 的 {port_name} 连接"
+                                f"已创建从 {source_port.parent_node.title} 到 {target_port.parent_node.title} 的 {port_name} 连接"
                             )
                 else:
                     # 如果无法连接，则给出提示并取消连线操作
@@ -338,7 +338,7 @@ class EnhancedInfiniteCanvas(QWidget):
                 self.view.setDragMode(QGraphicsView.NoDrag)
                 self.view.setCursor(Qt.CrossCursor)
                 self.info_label.setText(
-                    f"已选择 {item.parent_node.id} 的 {port_name} 输出端口，点击目标节点完成连接"
+                    f"已选择 {item.parent_node.title} 的 {port_name} 输出端口，点击目标节点完成连接"
                 )
                 event.accept()
                 return
@@ -410,9 +410,9 @@ class EnhancedInfiniteCanvas(QWidget):
 
             # 提供视觉反馈
             if target_port and self.connection_manager.connecting_port.can_connect(target_port):
-                node_id = target_port.parent_node.id if hasattr(target_port, 'parent_node') else "未知节点"
+                node_name = target_port.parent_node.title if hasattr(target_port, 'parent_node') else "未知节点"
                 port_name = target_port.port_name if hasattr(target_port, 'port_name') else "输入"
-                self.info_label.setText(f"点击连接到 {node_id} 的 {port_name} 端口")
+                self.info_label.setText(f"点击连接到 {node_name} 的 {port_name} 端口")
                 self.view.setCursor(Qt.DragLinkCursor)
             else:
                 if isinstance(item, Node) or isinstance(item, InputPort):
@@ -664,6 +664,8 @@ class EnhancedInfiniteCanvas(QWidget):
     # 添加文件操作
     def load_file(self, file_path):
         """从文件加载节点"""
+        #居中显示
+        self.center_on_content()
         return self.node_manager.load_file(file_path)
 
     def save_to_file(self, file_path=None):

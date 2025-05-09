@@ -42,6 +42,14 @@ class CanvasNodeManager(QObject):
         """
         # 清除当前节点
         self.clear()
+
+        # 确保Pipeline中的节点也被完全清除
+        if hasattr(self.pipeline, 'nodes'):
+            if isinstance(self.pipeline.nodes, dict):
+                self.pipeline.nodes.clear()
+            elif isinstance(self.pipeline.nodes, list):
+                self.pipeline.nodes.clear()  # 如果是列表也可以用clear方法
+
         try:
             # 使用Pipeline加载文件
             self.pipeline.load_from_file(file_path)
@@ -168,9 +176,14 @@ class CanvasNodeManager(QObject):
         if node in self.open_nodes:
             self.open_nodes.remove(node)
 
-        # 从Pipeline中移除节点
+        # 从Pipeline中移除节点 - 添加额外的检查
         if hasattr(node, 'id') and node.id in self.pipeline.nodes:
             del self.pipeline.nodes[node.id]
+        # 如果node有task_node属性，尝试通过task_node.name删除
+        elif hasattr(node, 'task_node') and node.task_node:
+            task_node = node.task_node
+            if hasattr(task_node, 'name') and task_node.name in self.pipeline.nodes:
+                del self.pipeline.nodes[task_node.name]
 
     def select_node(self, node, selected=True):
         """

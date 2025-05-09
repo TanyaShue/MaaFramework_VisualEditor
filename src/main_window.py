@@ -7,7 +7,7 @@ from PySide6.QtWidgets import (QMainWindow, QDockWidget, QStatusBar, QToolBar,
                                QWidget, QLabel, QPushButton, QHBoxLayout,
                                QMessageBox, QFileDialog)
 
-from src.views.infinite_canvas import EnhancedInfiniteCanvas
+from src.views.node_canvas import NodeCanvas
 from src.views.node_library import NodeLibrary
 from src.views.node_properties_editor import NodePropertiesEditor
 from .config_manager import config_manager
@@ -24,7 +24,7 @@ class MainWindow(QMainWindow):
         # 创建配置管理器
         self.config_manager = config_manager
         # 创建核心组件 - 使用增强的画布
-        self.canvas = EnhancedInfiniteCanvas()
+        self.canvas = NodeCanvas()
         self.controller_view = ControllerView()
         self.resource_library = ResourceLibrary()
         self.property_editor = NodePropertiesEditor()
