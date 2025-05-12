@@ -287,13 +287,12 @@ class MainWindow(QMainWindow):
             dock.visibilityChanged.connect(lambda visible, d=dock: self.update_dock_status(d, visible))
 
         # 连接节点属性编辑器的信号
-        if hasattr(self.property_editor, 'properties_changed'):
-            self.property_editor.properties_changed.connect(self.on_properties_changed)
         # 连接节点选择变化信号到属性编辑器
         self.canvas.node_manager.OpenNodeChanged.connect(self.update_property_editor)
         self.canvas.node_manager.OpenNodeChanged.connect(self.controller_view.update_selected_node)
         self.canvas.open_node.connect(self.show_properties_dock)
         self.resource_library.resource_opened.connect(self.on_resource_opened)
+        # self.property_editor.node_changed.connect(self.canvas)
 
     @Slot()
     def show_properties_dock(self):

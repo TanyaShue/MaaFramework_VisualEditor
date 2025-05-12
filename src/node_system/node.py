@@ -1,7 +1,7 @@
-import hashlib  # 用于MD5哈希计算
+import hashlib
 import os
 
-from PySide6.QtCore import QRectF, Qt, QPointF, Signal, QObject
+from PySide6.QtCore import QRectF, Qt, QPointF
 from PySide6.QtGui import QPainter, QFont, QColor, QPen, QBrush, QPainterPath, QPixmap
 from PySide6.QtWidgets import QGraphicsItem
 
@@ -11,421 +11,529 @@ from src.pipeline import TaskNode
 
 
 class Node(QGraphicsItem):
-    def __init__(self, title="", task_node=None, parent=None, default_image_path="default_image.png"):
+    # Node type constants
+    TYPE_GENERIC = 0
+    TYPE_RECOGNITION = 1
+    TYPE_UNKNOWN = 2
+
+    # Shared unknown image
+    _unknown_image = None
+
+    def __init__(self, title="", task_node=None, parent=None, default_image_path="default_image.png", node_type=None):
         super().__init__(parent)
-        self.task_node:TaskNode = task_node
+        self.task_node = task_node
+        self.node_type = node_type if node_type is not None else self._determine_node_type()
 
-        # Store config_manager
-        self.config_manager = config_manager
+        # Set title based on task_node.name if available, otherwise use provided title
+        self.title = self._get_node_title(title)
 
-        # Calculate image directory path from resource directory
-        self.image_dir = None
-        if self.config_manager:
-            resource_dir = self.config_manager.config.get("recent_files", {}).get("resource_dir", "")
-            if resource_dir:
-                # Get the parent directory by removing the last component
-                base_dir = os.path.dirname(resource_dir)
-                # Append "image" directory (not "images")
-                self.image_dir = os.path.join(base_dir, "image")
+        # Basic configuration
+        self.image_dir = self._get_image_directory()
+        self.default_image_path = default_image_path
 
-        self.title = title
-        self.bounds = QRectF(0, 0, 240, 200)  # Make slightly taller for image
+        # Initialize dimensions
         self.header_height = 30
         self.content_start = self.header_height + 10
-        # Image display settings
-        self.image_height = 80  # Height for the image display area
-        self.default_image_path = default_image_path
-        self.default_image = None
-        self.recognition_image = None  # Will hold the image to recognize
-        self.has_template = False  # 标记是否有template属性
+        self.image_height = 80
 
-        # 检查是否有template属性
-        self._check_template()
+        # Initialize bounds based on node type
+        self.bounds = QRectF(0, 0, 240, 180 if self.node_type == self.TYPE_UNKNOWN else 200)
 
-        self._load_images()  # Load images
-
-        # Node can be selected and moved
+        # Configure item flags
         self.setFlag(QGraphicsItem.ItemIsSelectable)
         self.setFlag(QGraphicsItem.ItemIsMovable)
         self.setFlag(QGraphicsItem.ItemSendsGeometryChanges)
 
-        # 初始化端口 - 抽象为单独方法便于子类重写
+        # Initialize ports
         self.input_port = None
         self.output_ports = {}
         self._initialize_ports()
 
-        # Create a collapsed state
+        # Initialize collapse state
         self.collapsed = False
         self.original_height = self.bounds.height()
 
-    def _check_template(self):
-        """检查是否有template属性，子类可重写以自定义template检测逻辑"""
-        if self.task_node and hasattr(self.task_node, 'template') and self.task_node.template:
-            self.has_template = True
-        else:
-            self.has_template = False
+    def _get_node_title(self, default_title=""):
+        """Get node title from task_node.name if available, otherwise use default_title"""
+        if self.node_type == self.TYPE_UNKNOWN:
+            return "Unknown Node"
+        elif self.task_node and hasattr(self.task_node, 'name') and self.task_node.name:
+            return self.task_node.name
+        return default_title
+
+    def _get_image_directory(self):
+        """Get image directory path"""
+        if not config_manager:
+            return None
+
+        resource_dir = config_manager.config.get("recent_files", {}).get("resource_dir", "")
+        if not resource_dir:
+            return None
+
+        base_dir = os.path.dirname(resource_dir)
+        return os.path.join(base_dir, "image")
+
+    def _determine_node_type(self):
+        """Determine node type based on task_node properties"""
+        if not self.task_node or (hasattr(self.task_node, '_node_type') and self.task_node._node_type == 'unknown'):
+            return self.TYPE_UNKNOWN
+
+        if hasattr(self.task_node, 'template') and self.task_node.template:
+            return self.TYPE_RECOGNITION
+
+        return self.TYPE_GENERIC
 
     def _load_images(self):
-        """Load the default image and check for template attribute"""
-        # Construct full path for default image
-        default_image_path = self.default_image_path
-        if self.image_dir and not os.path.isabs(self.default_image_path):
-            default_image_path = os.path.join(self.image_dir, self.default_image_path)
+        """Load images based on node type, with graceful fallbacks"""
+        # Handle unknown node type
+        if self.node_type == self.TYPE_UNKNOWN:
+            if Node._unknown_image is None:
+                self._create_unknown_image()
+            self.default_image = Node._unknown_image
+            self.recognition_image = Node._unknown_image
+            return
 
-        # Load default image
-        try:
-            self.default_image = QPixmap(default_image_path)
-            if self.default_image.isNull():
-                # Create a simple default image if file can't be loaded
-                self.default_image = QPixmap(self.image_height, self.image_height)
-                self.default_image.fill(QColor(200, 200, 200))
-        except:
-            # Create a simple default image if file can't be loaded
-            self.default_image = QPixmap(self.image_height, self.image_height)
-            self.default_image.fill(QColor(200, 200, 200))
-
-        self.recognition_image = self.default_image
-
-        # 检查task_node是否有template属性，并且属性有值
-        if self.has_template:
-            # 如果有template属性，加载对应的图像
-            self._load_recognition_image()
-
-    def _load_recognition_image(self):
-        """Load the recognition image from the task_node"""
-        image_path = None
-
-        # 首先尝试从template属性获取图像路径
-        if hasattr(self.task_node, 'template'):
-            template = self.task_node.template
-            # 处理template是列表的情况，取第一个元素
-            if isinstance(template, list) and len(template) > 0:
-                image_path = template[0]
-            # 处理template是字符串的情况
-            elif isinstance(template, str):
-                image_path = template
-        base_path = config_manager.config["recent_files"]["base_resource_path"]
-        full_path = os.path.join(base_path, "image", image_path)
-        # Try to load the image if a path was
-        if full_path:
+        # Try to load default image if path is available
+        if self.default_image_path:
+            default_image_path = self.default_image_path
+            if self.image_dir and not os.path.isabs(default_image_path):
+                default_image_path = os.path.join(self.image_dir, default_image_path)
 
             try:
-                self.recognition_image = QPixmap(full_path)
-                if self.recognition_image.isNull():
-                    self.recognition_image = self.default_image
+                self.default_image = QPixmap(default_image_path)
+                if self.default_image.isNull():
+                    self._create_fallback_image()
             except:
-                self.recognition_image = self.default_image
+                self._create_fallback_image()
+        else:
+            # No default image path provided
+            self._create_fallback_image()
 
-    def _initialize_ports(self):
-        """
-        初始化节点的所有端口
-        将过程拆分为创建输入和输出端口两个方法，方便子类重写
-        """
-        # 初始化输入端口
-        self._initialize_input_ports()
+        # Set default image as recognition image initially (could be None)
+        self.recognition_image = self.default_image
 
-        # 初始化输出端口
-        self._initialize_output_ports()
+        # Try to load specific recognition image if this is a recognition node
+        if self.node_type == self.TYPE_RECOGNITION:
+            self._load_recognition_image()
 
-    def _initialize_input_ports(self):
-        """初始化输入端口，子类可重写此方法自定义输入端口逻辑"""
-        width = self.bounds.width()
+    def _create_fallback_image(self):
+        """Create a simple fallback image"""
+        self.default_image = QPixmap(self.image_height, self.image_height)
+        self.default_image.fill(QColor(200, 200, 200))
 
-        # 创建输入端口（顶部中心）
-        self.input_port = InputPort(
-            self,
-            QPointF(width / 2, 0),
-            self
-        )
+    def _create_unknown_image(self):
+        """Create image for unknown node type"""
+        # Create image only once for all instances
+        Node._unknown_image = QPixmap(120, 120)
+        Node._unknown_image.fill(Qt.transparent)
 
-    def _initialize_output_ports(self):
-        """初始化输出端口，子类可重写此方法自定义输出端口逻辑"""
-        width = self.bounds.width()
-        height = self.bounds.height()
-
-        # 创建输出端口字典
-        self.output_ports = {}
-
-        # "next" output port at bottom center
-        self.output_ports["next"] = OutputPort(
-            self,
-            QPointF(width / 2, height),
-            "next",
-            self
-        )
-
-        # "on_error" output port at left center
-        self.output_ports["on_error"] = OutputPort(
-            self,
-            QPointF(0, height / 2),
-            "on_error",
-            self
-        )
-
-        # "interrupt" output port at right center
-        self.output_ports["interrupt"] = OutputPort(
-            self,
-            QPointF(width, height / 2),
-            "interrupt",
-            self
-        )
-
-    def paint(self, painter, option, widget):
-        """
-        绘制节点的界面。将绘制过程分为几个逻辑组件以便子类重写
-        """
-        # 设置渲染提示以获取更平滑的外观
+        painter = QPainter(Node._unknown_image)
         painter.setRenderHint(QPainter.Antialiasing)
 
-        # 定义颜色 - 子类可重写这些颜色
+        # Draw background
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor(200, 200, 200, 160))
+        painter.drawEllipse(10, 10, 100, 100)
+
+        # Draw red X
+        pen = QPen(QColor(220, 50, 50), 8)
+        painter.setPen(pen)
+        painter.drawLine(30, 30, 90, 90)
+        painter.drawLine(90, 30, 30, 90)
+
+        painter.end()
+
+    def _load_recognition_image(self):
+        """Load recognition image from task_node"""
+        if not hasattr(self.task_node, 'template'):
+            return
+
+        template = self.task_node.template
+        image_path = None
+
+        # Handle template as list or string
+        if isinstance(template, list) and len(template) > 0:
+            image_path = template[0]
+        elif isinstance(template, str):
+            image_path = template
+
+        # If no path found, return
+        if not image_path:
+            return
+
+        # Get base path and construct full path
+        base_path = config_manager.config.get("recent_files", {}).get("base_resource_path", "")
+        if not base_path:
+            return
+
+        full_path = os.path.join(base_path, "image", image_path)
+
+        try:
+            self.recognition_image = QPixmap(full_path)
+            if self.recognition_image.isNull():
+                self.recognition_image = self.default_image
+        except:
+            self.recognition_image = self.default_image
+
+    def _initialize_ports(self):
+        """Initialize all ports"""
+        # Create input port at top center
+        width = self.bounds.width()
+        self.input_port = InputPort(self, QPointF(width / 2, 0), self)
+
+        # Create output ports (except for unknown nodes)
+        if self.node_type != self.TYPE_UNKNOWN:
+            height = self.bounds.height()
+
+            # Standard output ports with positions
+            port_configs = {
+                "next": QPointF(width / 2, height),  # bottom center
+                "on_error": QPointF(0, height / 2),  # left center
+                "interrupt": QPointF(width, height / 2)  # right center
+            }
+
+            # Create output ports from configuration
+            self.output_ports = {
+                port_type: OutputPort(self, position, port_type, self)
+                for port_type, position in port_configs.items()
+            }
+
+    def paint(self, painter, option, widget):
+        """Paint the node"""
+        painter.setRenderHint(QPainter.Antialiasing)
+
+        # Get color scheme based on node type
         colors = self._get_node_colors()
 
-        # 绘制节点阴影
-        self._paint_shadow(painter, colors)
-
-        # 绘制节点主体
-        self._paint_body(painter, colors)
-
-        # 绘制节点标题栏
-        self._paint_header(painter, colors)
-
-        # 如果未折叠，绘制内容
-        if not self.collapsed:
-            # 绘制分隔线
-            self._paint_separator(painter, colors)
-
-            # 根据是否有template属性选择不同的显示方式
-            if self.has_template:
-                self._paint_template_content(painter, colors)
-            else:
-                self._paint_properties_content(painter, colors)
-
-    def _get_node_colors(self):
-        """获取节点的颜色方案，子类可重写以更改颜色"""
-        return {
-            'header': QColor(60, 120, 190),  # 蓝色标题栏
-            'body': QColor(240, 240, 240),  # 浅灰色主体
-            'border': QColor(30, 60, 90) if not self.isSelected() else QColor(255, 165, 0),  # 深蓝色边框或橙色（选中时）
-            'header_text': QColor(255, 255, 255),  # 标题栏的白色文本
-            'shadow': QColor(50, 50, 50, 40),  # 半透明阴影
-            'property_title': QColor(60, 60, 60),  # 属性标题颜色
-            'property_value': QColor(80, 80, 80),  # 属性值颜色
-            'separator': QColor(100, 100, 100)  # 分隔线颜色
-        }
-
-    def _paint_shadow(self, painter, colors):
-        """绘制节点阴影"""
-        painter.save()
+        # Paint shadow
         shadow_rect = self.bounds.adjusted(4, 4, 4, 4)
         painter.setPen(Qt.NoPen)
-        painter.setBrush(QBrush(colors['shadow']))
+        painter.setBrush(colors['shadow'])
         painter.drawRoundedRect(shadow_rect, 5, 5)
-        painter.restore()
 
-    def _paint_body(self, painter, colors):
-        """绘制节点主体"""
+        # Paint body
         painter.setPen(QPen(colors['border'], 1.5))
-        painter.setBrush(QBrush(colors['body']))
+        painter.setBrush(colors['body'])
+        painter.drawRoundedRect(self.bounds, 5, 5)
 
-        # 绘制圆角矩形
-        path = QPainterPath()
-        path.addRoundedRect(self.bounds, 5, 5)
-        painter.drawPath(path)
-
-    def _paint_header(self, painter, colors):
-        """绘制节点标题栏"""
+        # Paint header
         header_rect = QRectF(0, 0, self.bounds.width(), self.header_height)
-        header_path = QPainterPath()
-        header_path.addRoundedRect(header_rect, 5, 5)
-
-        # 创建裁剪区域使只有顶部角为圆形
         painter.save()
-        painter.setClipPath(header_path)
+        path = QPainterPath()
+        path.addRoundedRect(header_rect, 5, 5)
+        painter.setClipPath(path)
         painter.setPen(Qt.NoPen)
-        painter.setBrush(QBrush(colors['header']))
+        painter.setBrush(colors['header'])
         painter.drawRect(header_rect)
         painter.restore()
 
-        # 绘制标题文本
+        # Paint title text
         painter.setPen(colors['header_text'])
         painter.setFont(QFont("Arial", 9, QFont.Bold))
-        title_width = self.bounds.width() - 10  # 使用完整宽度减去内边距
         painter.drawText(
-            QRectF(10, 0, title_width, self.header_height),
+            QRectF(10, 0, self.bounds.width() - 10, self.header_height),
             Qt.AlignVCenter | Qt.AlignLeft,
             self.title
         )
 
-    def _paint_separator(self, painter, colors):
-        """绘制标题栏和内容区域之间的分隔线"""
-        painter.setPen(QPen(colors['separator'], 0.5))
-        y_pos = self.header_height
-        painter.drawLine(0, y_pos, self.bounds.width(), y_pos)
+        # If not collapsed, paint content
+        if not self.collapsed:
+            # Paint separator line
+            painter.setPen(QPen(colors['separator'], 0.5))
+            painter.drawLine(0, self.header_height, self.bounds.width(), self.header_height)
 
-    def _paint_template_content(self, painter, colors):
-        """绘制包含模板图像的内容"""
-        if self.recognition_image and not self.recognition_image.isNull():
-            img_size = min(self.bounds.width() - 30, self.bounds.height() - self.content_start - 20)
+            # Paint content based on node type
+            if self.node_type == self.TYPE_RECOGNITION:
+                self._paint_recognition_content(painter, colors)
+            elif self.node_type == self.TYPE_UNKNOWN:
+                self._paint_unknown_content(painter, colors)
+            else:
+                self._paint_properties(painter, colors)
+
+    def _get_node_colors(self):
+        """Get color scheme based on node type"""
+        # Base colors that are common
+        base_colors = {
+            'shadow': QColor(50, 50, 50, 40),
+            'header_text': QColor(255, 255, 255),
+            'border': QColor(255, 165, 0) if self.isSelected() else None,
+        }
+
+        # Colors specific to node type
+        if self.node_type == self.TYPE_RECOGNITION:
+            colors = {
+                'header': QColor(60, 150, 60),
+                'body': QColor(240, 248, 240),
+                'border': QColor(255, 165, 0) if self.isSelected() else QColor(30, 90, 30),
+                'property_title': QColor(60, 100, 60),
+                'property_value': QColor(80, 120, 80),
+                'separator': QColor(100, 160, 100)
+            }
+        elif self.node_type == self.TYPE_UNKNOWN:
+            colors = {
+                'header': QColor(180, 40, 40),
+                'body': QColor(240, 220, 220),
+                'border': QColor(255, 165, 0) if self.isSelected() else QColor(140, 30, 30),
+                'property_title': QColor(150, 30, 30),
+                'property_value': QColor(100, 30, 30),
+                'separator': QColor(130, 50, 50)
+            }
+        else:  # Generic node
+            colors = {
+                'header': QColor(60, 120, 190),
+                'body': QColor(240, 245, 250),
+                'border': QColor(255, 165, 0) if self.isSelected() else QColor(30, 60, 90),
+                'property_title': QColor(60, 60, 90),
+                'property_value': QColor(80, 80, 110),
+                'separator': QColor(100, 120, 160)
+            }
+
+        # Add common colors (except border which we already set specifically)
+        for key, value in base_colors.items():
+            if key != 'border':  # Don't override border
+                colors[key] = value
+
+        return colors
+
+    def _paint_recognition_content(self, painter, colors):
+        """Paint recognition node content"""
+        # Skip if no image or null image
+        if not self.recognition_image or self.recognition_image.isNull():
+            # If no image, still display properties
+            if hasattr(self.task_node, 'recognition'):
+                self._draw_property(
+                    painter,
+                    "Recognition",
+                    self.task_node.recognition,
+                    self.content_start + 10,
+                    colors['property_title'],
+                    colors['property_value']
+                )
+            return
+
+        # Calculate image size and position
+        img_size = min(self.bounds.width() - 30, self.bounds.height() - self.content_start - 20)
+        img_rect = QRectF(
+            (self.bounds.width() - img_size) / 2,
+            self.content_start,
+            img_size,
+            img_size
+        )
+
+        # Draw border around image
+        painter.setPen(QPen(QColor(180, 180, 180), 1))
+        painter.setBrush(Qt.NoBrush)
+        painter.drawRect(img_rect)
+
+        # Draw image
+        painter.drawPixmap(img_rect.toRect(), self.recognition_image)
+
+        # Draw recognition property if available
+        y_pos = img_rect.bottom() + 10
+        if hasattr(self.task_node, 'recognition'):
+            self._draw_property(
+                painter,
+                "Recognition",
+                self.task_node.recognition,
+                y_pos,
+                colors['property_title'],
+                colors['property_value']
+            )
+
+    def _paint_unknown_content(self, painter, colors):
+        """Paint unknown node content"""
+        if self._unknown_image and not self._unknown_image.isNull():
+            # Draw warning text
+            painter.setPen(colors['property_title'])
+            painter.setFont(QFont("Arial", 9, QFont.Bold))
+            painter.drawText(
+                QRectF(10, self.content_start - 5, self.bounds.width() - 20, 20),
+                Qt.AlignCenter,
+                "未知节点类型"
+            )
+
+            # Calculate and draw image
+            img_size = min(self.bounds.width() - 30, self.bounds.height() - self.content_start - 40)
             img_rect = QRectF(
-                (self.bounds.width() - img_size) / 2,  # 水平居中
-                self.content_start,
+                (self.bounds.width() - img_size) / 2,
+                self.content_start + 20,
                 img_size,
                 img_size
             )
 
-            # 图像周围添加一个微妙的框
-            painter.setPen(QPen(QColor(180, 180, 180), 1))
+            # Draw dashed border
+            painter.setPen(QPen(colors['property_title'], 1, Qt.DashLine))
             painter.setBrush(Qt.NoBrush)
             painter.drawRect(img_rect)
 
-            # 绘制图像
-            painter.drawPixmap(img_rect.toRect(), self.recognition_image)
+            # Draw image
+            painter.drawPixmap(img_rect.toRect(), self._unknown_image)
 
-    def _paint_properties_content(self, painter, colors):
-        """绘制节点属性内容"""
-        if self.task_node:
-            self._draw_properties(painter)
+    def _paint_properties(self, painter, colors):
+        """Paint node properties"""
+        if not self.task_node:
+            return
 
-    def _draw_properties(self, painter):
-        """单独的方法来绘制节点属性，仅在没有template属性时使用"""
-        y_pos = self.content_start + 15
+        y_pos = self.content_start + 5
+        properties = self._get_properties_to_display()
 
-        # 修改属性显示的样式，使其更易读
-        property_title_color = QColor(60, 60, 60)
-        property_value_color = QColor(80, 80, 80)
-
-        # Display key TaskNode properties
-        properties_to_display = self._get_properties_to_display()
-
-        # Draw the properties with enhanced styling
-        for key, value in properties_to_display:
+        for key, value in properties:
             if y_pos + 25 > self.bounds.height():
-                # Don't render properties that would go outside the node
                 break
 
-            # 绘制属性键（粗体）
-            painter.setFont(QFont("Arial", 8, QFont.Bold))
-            painter.setPen(property_title_color)
-            property_key = f"{key}:"
-            painter.drawText(
-                QRectF(10, y_pos, self.bounds.width() - 20, 12),
-                Qt.AlignLeft,
-                property_key
+            self._draw_property(
+                painter,
+                key,
+                value,
+                y_pos,
+                colors['property_title'],
+                colors['property_value']
             )
+            y_pos += 25
 
-            # 绘制属性值（常规字体）
-            painter.setFont(QFont("Arial", 8))
-            painter.setPen(property_value_color)
+    def _draw_property(self, painter, key, value, y_pos, title_color, value_color):
+        """Draw a single property (key-value pair)"""
+        # Draw property key (bold)
+        painter.setFont(QFont("Arial", 8, QFont.Bold))
+        painter.setPen(title_color)
+        property_key = f"{key}:"
+        painter.drawText(
+            QRectF(10, y_pos, self.bounds.width() - 20, 12),
+            Qt.AlignLeft,
+            property_key
+        )
 
-            # 处理长值的截断并添加省略号
-            property_value = str(value)
-            metrics = painter.fontMetrics()
-            available_width = self.bounds.width() - 25
-            if metrics.horizontalAdvance(property_value) > available_width:
-                property_value = metrics.elidedText(property_value, Qt.ElideRight, available_width)
+        # Draw property value (regular font)
+        painter.setFont(QFont("Arial", 8))
+        painter.setPen(value_color)
 
-            painter.drawText(
-                QRectF(15, y_pos + 13, self.bounds.width() - 25, 12),
-                Qt.AlignLeft,
-                property_value
-            )
+        # Handle long values with ellipsis
+        property_value = str(value)
+        metrics = painter.fontMetrics()
+        available_width = self.bounds.width() - 25
+        if metrics.horizontalAdvance(property_value) > available_width:
+            property_value = metrics.elidedText(property_value, Qt.ElideRight, available_width)
 
-            y_pos += 30  # 增加属性之间的间距
+        painter.drawText(
+            QRectF(15, y_pos + 13, self.bounds.width() - 25, 12),
+            Qt.AlignLeft,
+            property_value
+        )
 
     def _get_properties_to_display(self):
-        """获取要显示的属性列表，子类可重写此方法自定义属性显示"""
-        properties_to_display = []
+        """Get list of properties to display"""
+        properties = []
 
-        # Add essential properties
-        if hasattr(self.task_node, 'recognition'):
-            properties_to_display.append(("Recognition", self.task_node.recognition))
+        # Add basic properties
+        basic_attrs = [
+            ('recognition', "Recognition"),
+            ('action', "Action"),
+            ('enabled', "Enabled")
+        ]
 
-        if hasattr(self.task_node, 'action'):
-            properties_to_display.append(("Action", self.task_node.action))
+        for attr, label in basic_attrs:
+            if hasattr(self.task_node, attr):
+                value = getattr(self.task_node, attr)
+                properties.append((label, str(value)))
 
-        if hasattr(self.task_node, 'enabled'):
-            properties_to_display.append(("Enabled", str(self.task_node.enabled)))
-
-        # Add important algorithm properties
+        # Add algorithm properties
         if hasattr(self.task_node, '_algorithm_properties'):
-            for key, value in self.task_node._algorithm_properties.items():
-                if isinstance(value, (str, int, float, bool)):
-                    properties_to_display.append((key, str(value)))
+            properties.extend(
+                (key, str(value))
+                for key, value in self.task_node._algorithm_properties.items()
+                if isinstance(value, (str, int, float, bool))
+            )
 
-        return properties_to_display
+        return properties
 
     def boundingRect(self):
+        """Return the bounding rectangle"""
         return self.bounds
 
     def set_position(self, x, y):
+        """Set node position and update connections"""
         self.setPos(x, y)
-        # Update the connections when node is moved
         self._update_connections()
 
     def _update_connections(self):
-        # Update all connections attached to this node
+        """Update all connections to this node"""
+        # Update input connection
         if self.input_port and self.input_port.is_connected():
             connection = self.input_port.get_connection()
             if connection:
                 connection.update_path()
 
-        for port_type, port in self.output_ports.items():
+        # Update output connections
+        for port in self.output_ports.values():
             for connection in port.get_connections():
                 if connection:
                     connection.update_path()
 
     def _update_port_positions(self):
-        """
-        更新所有端口位置
-        将这个方法拆分为更新输入和输出端口两部分，方便子类重写
-        """
-        # 更新输入端口位置
-        self._update_input_port_positions()
-
-        # 更新输出端口位置
-        self._update_output_port_positions()
-
-    def _update_input_port_positions(self):
-        """更新输入端口位置，子类可重写"""
-        if self.input_port:
-            width = self.bounds.width()
-            self.input_port.setPos(width / 2, 0)
-
-    def _update_output_port_positions(self):
-        """更新输出端口位置，子类可重写"""
+        """Update positions of all ports"""
         width = self.bounds.width()
         height = self.bounds.height()
 
-        # 更新输出端口位置
-        if "next" in self.output_ports:
-            self.output_ports["next"].setPos(width / 2, height)
-        if "on_error" in self.output_ports:
-            self.output_ports["on_error"].setPos(0, height / 2)
-        if "interrupt" in self.output_ports:
-            self.output_ports["interrupt"].setPos(width, height / 2)
+        # Update input port position
+        if self.input_port:
+            self.input_port.setPos(width / 2, 0)
+
+        # Update output port positions
+        if self.node_type != self.TYPE_UNKNOWN:
+            port_positions = {
+                "next": QPointF(width / 2, height),
+                "on_error": QPointF(0, height / 2),
+                "interrupt": QPointF(width, height / 2)
+            }
+
+            for port_type, position in port_positions.items():
+                if port_type in self.output_ports:
+                    self.output_ports[port_type].setPos(position)
 
     def get_input_port(self):
+        """Get the input port"""
         return self.input_port
 
     def get_output_port(self, port_type="next"):
         """Get output port by type"""
+        if self.node_type == self.TYPE_UNKNOWN:
+            return None
         return self.output_ports.get(port_type)
 
     def get_output_ports(self):
-        """Return all output ports as a dictionary"""
+        """Get all output ports"""
+        if self.node_type == self.TYPE_UNKNOWN:
+            return {}
         return self.output_ports
 
     def set_task_node(self, task_node):
-        """Set or update the TaskNode associated with this Node"""
+        """Set or update the task node"""
         self.task_node = task_node
         original_height = self.bounds.height()
 
-        # 检查template属性
-        self._check_template()
+        # Determine new node type
+        old_type = self.node_type
+        self.node_type = self._determine_node_type()
 
-        self._load_images()  # 重新加载图像
-        self.resize_to_content()  # Adjust size to fit content
-        self.update()  # Force redraw
+        # Update node title based on task_node
+        self.title = self._get_node_title(self.title)
+
+        # Set fixed height for unknown nodes
+        if self.node_type == self.TYPE_UNKNOWN:
+            self.bounds.setHeight(180)
+
+        # Reinitialize ports if node type changed
+        if old_type != self.node_type:
+            self.input_port = None
+            self.output_ports = {}
+            self._initialize_ports()
+
+        # Reload images
+        self._load_images()
+
+        # Resize and update
+        if self.node_type != self.TYPE_UNKNOWN:
+            self.resize_to_content()
 
         self.bounds.setHeight(max(original_height, self.bounds.height()))
         self._update_port_positions()
@@ -433,7 +541,7 @@ class Node(QGraphicsItem):
         self.update()
 
     def toggle_collapse(self):
-        """Toggle between collapsed (header only) and expanded state"""
+        """Toggle collapsed state"""
         self.collapsed = not self.collapsed
 
         if self.collapsed:
@@ -442,70 +550,73 @@ class Node(QGraphicsItem):
         else:
             self.bounds.setHeight(self.original_height)
 
-        # Update port positions
         self._update_port_positions()
-
-        # Update connections
         self._update_connections()
         self.update()
 
     def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton:
-            if 0 <= event.pos().x() <= self.bounds.width() and 0 <= event.pos().y() <= self.header_height:
-                # If user clicks on the header, handle double-click for collapse
-                if event.type() == event.GraphicsSceneMouseDoubleClick:
-                    self.toggle_collapse()
-                    event.accept()
-                    return
+        """Handle mouse press events"""
+        if (event.button() == Qt.LeftButton and
+                0 <= event.pos().x() <= self.bounds.width() and
+                0 <= event.pos().y() <= self.header_height and
+                event.type() == event.GraphicsSceneMouseDoubleClick):
+            self.toggle_collapse()
+            event.accept()
+            return
+
         super().mousePressEvent(event)
 
     def resize_to_content(self):
-        """Resize the node to fit content"""
-        min_height = self.header_height + 10  # Header plus padding
+        """Resize node to fit content"""
+        if self.collapsed:
+            return
 
-        # 针对有无template属性的情况进行不同的大小调整策略
-        if self.has_template:
-            # 如果有template属性，留出更多空间显示图像
-            img_size = min(self.bounds.width() - 30, 160)  # 最大图像大小
-            content_height = self.content_start + img_size + 20  # 图像加一些内边距
+        min_height = self.header_height + 10
+
+        # Calculate content height based on node type
+        if self.node_type == self.TYPE_RECOGNITION:
+            img_size = min(self.bounds.width() - 30, 160)
+            content_height = self.content_start + img_size + 40
+        elif self.node_type == self.TYPE_UNKNOWN:
+            content_height = 180  # Fixed height
         else:
-            # 如果没有template属性，则需要更多的空间来显示属性
             property_count = len(self._get_properties_to_display())
-            properties_height = property_count * 30 + 20  # 每个属性行加内边距
+            properties_height = property_count * 25 + 10
             content_height = self.content_start + properties_height
 
+        # Set new height
         new_height = max(min_height, content_height)
+        self.bounds.setHeight(new_height)
+        self.original_height = new_height
 
-        # Update bounds
-        if not self.collapsed:
-            self.bounds.setHeight(new_height)
-            self.original_height = new_height
-
-            # Update port positions
-            self._update_port_positions()
-
-            # Update connections
-            self._update_connections()
-            self.update()
+        # Update ports and connections
+        self._update_port_positions()
+        self._update_connections()
+        self.update()
 
     def resize(self, width, height):
         """Manually resize the node"""
-        if not self.collapsed:
-            self.bounds.setWidth(max(100, width))  # Minimum width of 100
-            self.bounds.setHeight(max(self.header_height + 10, height))  # Minimum height
-            self.original_height = self.bounds.height()
+        if self.collapsed:
+            return
 
-            # Update port positions
-            self._update_port_positions()
+        self.bounds.setWidth(max(100, width))
+        self.bounds.setHeight(max(self.header_height + 10, height))
+        self.original_height = self.bounds.height()
 
-            # Update connections
-            self._update_connections()
-            self.update()
+        self._update_port_positions()
+        self._update_connections()
+        self.update()
 
     def get_center_pos(self):
-        """Get the center position of the node in its local coordinates"""
+        """Get center position in local coordinates"""
         return QPointF(self.bounds.width() / 2, self.bounds.height() / 2)
 
     def get_scene_center_pos(self):
-        """Get the center position of the node in scene coordinates"""
+        """Get center position in scene coordinates"""
         return self.mapToScene(self.get_center_pos())
+
+
+# Factory function for unknown nodes
+def create_unknown_node(title="Unknown Node", task_node=None, parent=None):
+    """Create an unknown type node"""
+    return Node(title=title, task_node=task_node, parent=parent, node_type=Node.TYPE_UNKNOWN)
