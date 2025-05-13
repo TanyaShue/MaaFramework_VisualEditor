@@ -2,7 +2,6 @@ from PySide6.QtCore import Signal, QObject, QPointF
 from PySide6.QtGui import QColor, Qt, QPen
 
 from src.node_system.node import Node
-from src.node_system.nodes.unknow_node import UnknownNode
 from src.pipeline import TaskNode, open_pipeline
 
 
@@ -116,7 +115,7 @@ class CanvasNodeManager(QObject):
 
         return node
 
-    def create_unknown_node(self, id=None, title="Unknown Node", position=None):
+    def create_unknown_node(self, title="Unknown Node", position=None):
         """
         创建一个未知节点
 
@@ -129,12 +128,8 @@ class CanvasNodeManager(QObject):
             创建的未知节点
         """
 
-        # 如果没有提供ID，生成一个唯一ID
-        if id is None:
-            id = f"UNK_{len(self.nodes):03d}"
-
         # 创建未知节点
-        unknown_node = UnknownNode(title=title)
+        unknown_node = Node(title=title, node_type=Node.TYPE_UNKNOWN)
 
         # 设置位置（如果提供）
         if position:
@@ -433,11 +428,10 @@ class CanvasNodeManager(QObject):
                         elif conn_type == 'on_error':
                             unknown_pos = QPointF(source_pos.x() + 500, source_pos.y() - 300)
                         else:  # interrupt
-                            unknown_pos = QPointF(source_pos.x() + 500, source_pos.y() - 300)
+                            unknown_pos = QPointF(source_pos.x() + 500, source_pos.y() + 150)
 
                         # 创建未知节点，保留原始ID
                         unknown_node = self.create_unknown_node(
-                            id=conn_name,
                             title=f"Unknown: {conn_name}",
                             position=unknown_pos
                         )
@@ -875,3 +869,46 @@ class CanvasNodeManager(QObject):
         else:
             # 如果没有连接，确保该属性为空列表或None
             setattr(source_task, conn_type, None)
+
+    def update_from_node(self, task_node):
+        """
+        更新可视化节点，使用提供的TaskNode中的数据。
+
+        此方法查找与输入TaskNode同名的可视化节点，并通过调用其set_task_node()方法进行更新。
+
+        参数:
+            task_node: 包含更新数据的TaskNode
+
+        返回:
+            bool: 找到并更新节点则返回True，否则返回False
+        """
+        if not task_node or not hasattr(task_node, 'name'):
+            print("错误: 提供了无效的TaskNode - 缺少name属性")
+            return False
+
+        # 查找同名的可视化节点
+        matching_node = None
+        for node in self.nodes:
+            if (hasattr(node, 'task_node') and
+                    node.task_node and
+                    hasattr(node.task_node, 'name') and
+                    node.task_node.name == task_node.name):
+                matching_node = node
+                break
+
+        # 如果找到匹配的节点，更新它
+        if matching_node:
+            # 使用新的task_node更新可视化节点
+            matching_node.set_task_node(task_node)
+
+            # 更新节点外观以反映变更
+            self._update_node_appearance(matching_node)
+
+            # 如果这个节点是打开的，发射信号以刷新任何打开的编辑器
+            if matching_node in self.open_nodes:
+                self.OpenNodeChanged.emit([matching_node])
+
+            return True
+        else:
+            print(f"警告: 未找到与TaskNode名称匹配的可视化节点: {task_node.name}")
+            return False

@@ -9,6 +9,8 @@ from PySide6.QtWidgets import (QMenu, QGraphicsView, QGraphicsScene,
                                QGraphicsPixmapItem, QGraphicsRectItem, QGraphicsItem,
                                QApplication)
 
+from src.config_manager import config_manager
+
 
 class SelectionRect(QGraphicsRectItem):
     """Selection rectangle with info display"""
@@ -42,20 +44,20 @@ class SelectionRect(QGraphicsRectItem):
                 if pixmap_item:
                     pixmap_rect = pixmap_item.boundingRect()
                     if not pixmap_rect.isEmpty():
-                        # Calculate relative coordinates (0-1 range)
+                        # 计算ROI (x, y, w, h)
                         pixmap_scene_pos = pixmap_item.scenePos()
-                        rel_x1 = (scene_rect.left() - pixmap_scene_pos.x()) / pixmap_rect.width()
-                        rel_y1 = (scene_rect.top() - pixmap_scene_pos.y()) / pixmap_rect.height()
-                        rel_x2 = (scene_rect.right() - pixmap_scene_pos.x()) / pixmap_rect.width()
-                        rel_y2 = (scene_rect.bottom() - pixmap_scene_pos.y()) / pixmap_rect.height()
+                        roi_x = int(scene_rect.left() - pixmap_scene_pos.x())
+                        roi_y = int(scene_rect.top() - pixmap_scene_pos.y())
+                        roi_w = int(scene_rect.width())
+                        roi_h = int(scene_rect.height())
 
                         # Get zoom factor directly from view's method for consistency
                         zoom_factor = view.get_zoom_factor()
                         zoom = int(zoom_factor * 100)  # Convert to percentage and ensure integer value
 
                         # Draw info panel
-                        info_width = 200
-                        info_height = 130
+                        info_width = 180
+                        info_height = 80
                         info_margin = 10
 
                         # Save painter state before any transformations
@@ -88,14 +90,11 @@ class SelectionRect(QGraphicsRectItem):
                         painter.setPen(QPen(QColor(255, 255, 255)))
                         painter.setFont(QFont("Arial", 9))
 
+                        # 更新信息面板，只显示ROI信息
                         text = (f"选择区域信息:\n"
                                 f"起点: ({int(scene_rect.x())}, {int(scene_rect.y())})\n"
                                 f"终点: ({int(scene_rect.right())}, {int(scene_rect.bottom())})\n"
-                                f"大小: {int(scene_rect.width())} x {int(scene_rect.height())}\n"
-                                f"图像坐标:\n"
-                                f"({rel_x1:.3f}, {rel_y1:.3f}) - "
-                                f"({rel_x2:.3f}, {rel_y2:.3f})\n"
-                                f"缩放: {zoom}%")
+                                f"ROI: ({roi_x}, {roi_y}, {roi_w}, {roi_h})")
 
                         painter.drawText(info_x + 10, info_y + 10, info_width - 20, info_height - 20,
                                          Qt.AlignLeft, text)
@@ -110,10 +109,15 @@ class DeviceImageView(QGraphicsView):
     # Signals
     selectionChanged = Signal(QRectF)
     selectionCleared = Signal()
+    # 添加新信号
+    saveImageToNodeSignal = Signal(str)
+    saveRoiToNodeSignal = Signal(str)
+    saveTargetToNodeSignal = Signal(str)
+    modeChangedSignal = Signal(bool)  # True = 框选模式, False = 显示模式
 
-    def __init__(self, parent=None,control=None):
+    def __init__(self, parent=None, control=None):
         super().__init__(parent)
-        self.control=control
+        self.control = control
         # Setup the view
         self.setRenderHint(QPainter.Antialiasing, True)
         self.setRenderHint(QPainter.SmoothPixmapTransform, True)
@@ -219,6 +223,8 @@ class DeviceImageView(QGraphicsView):
         if not enabled:
             self.clear_selection()
         self.setCursor(Qt.CrossCursor if enabled else Qt.ArrowCursor)
+        # 发送模式变更信号
+        self.modeChangedSignal.emit(enabled)
 
     def clear_selection(self):
         """Clear current selection"""
@@ -288,6 +294,37 @@ class DeviceImageView(QGraphicsView):
             self.selection_rect = None
 
         return None
+
+    def get_roi_data(self):
+        """获取当前选择区域的ROI数据 (x, y, w, h)"""
+        if not self.is_selection_valid() or not self.pixmap_item:
+            return None
+
+        try:
+            # 获取场景坐标中的选择区域
+            sel_rect = self.get_selection()
+            if not sel_rect:
+                return None
+
+            # 获取pixmap在场景中的位置
+            pixmap_scene_pos = self.pixmap_item.scenePos()
+
+            # 计算相对于图像的ROI坐标
+            roi_x = int(sel_rect.left() - pixmap_scene_pos.x())
+            roi_y = int(sel_rect.top() - pixmap_scene_pos.y())
+            roi_w = int(sel_rect.width())
+            roi_h = int(sel_rect.height())
+
+            return {
+                'x': roi_x,
+                'y': roi_y,
+                'width': roi_w,
+                'height': roi_h
+            }
+        except (RuntimeError, AttributeError):
+            # 处理潜在错误
+            self.selection_rect = None
+            return None
 
     def constrain_to_pixmap(self, scene_pos):
         """将场景坐标限制在图片范围内"""
@@ -516,7 +553,13 @@ class DeviceImageView(QGraphicsView):
         # Different options based on selection state
         if self.is_selection_valid():
             self.context_menu.addAction("编辑选区", self._edit_selection)
-            self.context_menu.addAction("保存选区", self._save_selection)
+
+            # 创建保存选区子菜单
+            save_menu = self.context_menu.addMenu("保存选区")
+            save_menu.addAction("保存图片到节点", self._save_image_to_node)
+            save_menu.addAction("保存ROI到节点", self._save_roi_to_node)
+            save_menu.addAction("保存Target到节点", self._save_target_to_node)
+
             self.context_menu.addAction("清除选区", self.clear_selection)
         else:
             self.context_menu.addAction("全选", self._select_all)
@@ -524,8 +567,8 @@ class DeviceImageView(QGraphicsView):
 
         # Common options
         self.context_menu.addSeparator()
-        self.context_menu.addAction(f"框选模式: {'开' if self.selection_mode else '关'}",
-                                    lambda: self.toggle_selection_mode(not self.selection_mode))
+        mode_action = self.context_menu.addAction(f"切换到{'显示' if self.selection_mode else '框选'}模式",
+                                                  lambda: self.toggle_selection_mode(not self.selection_mode))
 
         # 添加缩放选项
         self.context_menu.addSeparator()
@@ -576,90 +619,133 @@ class DeviceImageView(QGraphicsView):
             # 处理潜在错误
             print(f"编辑选区时发生错误: {e}")
 
+    def _save_image_to_node(self):
+        """保存原始图片到节点"""
+        if not self.original_pixmap:
+            return
 
-    def _save_selection(self):
-        """Save selection to file"""
+        # 保存并获取相对路径
+        relative_path = self._save_selection()
+
+        # 发射信号（假设信号定义为带参数：str）
+        if relative_path:
+            self.saveImageToNodeSignal.emit(relative_path)
+
+    def _save_roi_to_node(self):
+        """保存选区ROI到节点"""
+        if not self.is_selection_valid():
+            return
+
+        # 获取ROI数据
+        roi_data = self.get_roi_data()
+        if not roi_data:
+            return
+
+        # 发送信号
+        self.saveRoiToNodeSignal.emit(roi_data)
+
+    def _save_target_to_node(self):
+        """保存选区为目标到节点"""
         if not self.is_selection_valid() or not self.original_pixmap:
             return
 
         try:
-            # Get normalized selection
+            # 获取标准化的选区坐标
             norm_rect = self.get_normalized_selection()
             if not norm_rect:
                 return
 
-            # Extract from original pixmap
+            # 从原始图像中提取选区
             pixmap_rect = self.original_pixmap.rect()
             x = int(norm_rect.x() * pixmap_rect.width())
             y = int(norm_rect.y() * pixmap_rect.height())
             w = int(norm_rect.width() * pixmap_rect.width())
             h = int(norm_rect.height() * pixmap_rect.height())
 
-            # Create cropped pixmap
+            # 创建裁剪后的图像
             cropped = self.original_pixmap.copy(x, y, w, h)
 
-            # Generate filename based on priority:
-            # 1. Selected node name (if available)
-            # 2. Current task file name (if available)
-            # 3. Current timestamp
+            # 准备目标数据
+            target_data = {
+                'image': cropped,
+                'roi': {
+                    'x': x,
+                    'y': y,
+                    'width': w,
+                    'height': h
+                }
+            }
 
-            # Helper function to check if a file exists and create unique name
-            def get_unique_filename(base_name, ext='.png'):
-                """Get a unique filename by adding numeric suffix if needed"""
-                # Get current directory
-                current_dir = os.getcwd()
+            # 发送信号
+            self.saveTargetToNodeSignal.emit(target_data)
 
-                # Check if file exists
-                file_path = os.path.join(current_dir, f"{base_name}{ext}")
+        except (RuntimeError, AttributeError) as e:
+            print(f"保存目标时发生错误: {e}")
+
+    def _save_selection(self):
+        """Save selection to file and return relative path"""
+        if not self.is_selection_valid() or not self.original_pixmap:
+            return None
+
+        try:
+            norm_rect = self.get_normalized_selection()
+            if not norm_rect:
+                return None
+
+            pixmap_rect = self.original_pixmap.rect()
+            x = int(norm_rect.x() * pixmap_rect.width())
+            y = int(norm_rect.y() * pixmap_rect.height())
+            w = int(norm_rect.width() * pixmap_rect.width())
+            h = int(norm_rect.height() * pixmap_rect.height())
+            cropped = self.original_pixmap.copy(x, y, w, h)
+
+            base_path = config_manager.config["recent_files"]["base_resource_path"]
+
+            if self.control:
+                file_name = self.control.file_name
+                file_name_without_ext = os.path.splitext(os.path.basename(file_name))[0] if file_name else None
+
+                if file_name_without_ext:
+                    save_dir = os.path.join(base_path, "image", file_name_without_ext)
+                    base_filename = self.control.selected_node_name or file_name_without_ext
+                else:
+                    save_dir = os.path.join(base_path, "image")
+                    base_filename = f"selection_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            else:
+                save_dir = os.path.join(base_path, "image")
+                base_filename = f"selection_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+
+            os.makedirs(save_dir, exist_ok=True)
+
+            def get_unique_filename(directory, base_name, ext='.png'):
+                file_path = os.path.join(directory, f"{base_name}{ext}")
                 if not os.path.exists(file_path):
                     return f"{base_name}{ext}"
-
-                # If exists, try with numeric suffixes
                 counter = 1
                 while True:
                     new_filename = f"{base_name}_{counter}{ext}"
-                    file_path = os.path.join(current_dir, new_filename)
+                    file_path = os.path.join(directory, new_filename)
                     if not os.path.exists(file_path):
                         return new_filename
                     counter += 1
 
-            # Determine base filename (without numeric suffix)
-            if self.control:
-                base_filename = self.control.selected_node_name or self.control.file_name
-            else:
-                base_filename = None
-
-            # Use timestamp as default if no base filename is available
-            if not base_filename:
-                base_filename = f"selection_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-
-            # 获取带有数字后缀的唯一文件名（如果需要）
-            filename = get_unique_filename(base_filename)
-
-            # 保存到程序目录（当前工作目录）
-            current_dir = os.getcwd()
-            save_path = os.path.join(current_dir, filename)
+            filename = get_unique_filename(save_dir, base_filename)
+            save_path = os.path.join(save_dir, filename)
 
             try:
                 cropped.save(save_path)
-                # 如果有访问状态栏或通知系统的权限，可以在这里显示消息
                 print(f"Selection saved to {save_path}")
             except Exception as e:
                 print(f"Error saving selection: {e}")
+                return None
 
-                # 尝试保存到用户主目录作为备选方案
-                try:
-                    import pathlib
-                    home_dir = str(pathlib.Path.home())
-                    save_path = os.path.join(home_dir, filename)
-                    cropped.save(save_path)
-                    print(f"Selection saved to fallback location: {save_path}")
-                except Exception as e2:
-                    print(f"Error saving to fallback location: {e2}")
+            # Return path relative to base_path/image/
+            relative_path = os.path.relpath(save_path, os.path.join(base_path, "image"))
+            return relative_path
+
         except Exception as e:
-            # 处理潜在错误，添加更好的错误日志
             print(f"Exception in _save_selection: {e}")
-            pass
+            return None
 
     def _select_all(self):
         """Select the entire image"""
@@ -669,6 +755,8 @@ class DeviceImageView(QGraphicsView):
         try:
             # Enable selection mode
             self.selection_mode = True
+            # 发送模式变更信号
+            self.modeChangedSignal.emit(True)
 
             # Clear any existing selection first
             self.clear_selection()

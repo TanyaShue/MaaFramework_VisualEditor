@@ -292,7 +292,7 @@ class MainWindow(QMainWindow):
         self.canvas.node_manager.OpenNodeChanged.connect(self.controller_view.update_selected_node)
         self.canvas.open_node.connect(self.show_properties_dock)
         self.resource_library.resource_opened.connect(self.on_resource_opened)
-        # self.property_editor.node_changed.connect(self.canvas)
+        self.property_editor.node_changed.connect(self.canvas.node_manager.update_from_node)
 
     @Slot()
     def show_properties_dock(self):

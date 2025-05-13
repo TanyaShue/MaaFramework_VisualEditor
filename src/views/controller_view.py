@@ -37,6 +37,10 @@ class DeviceSearchThread(QThread):
 
 
 class ControllerView(QWidget):
+    # 添加新信号
+    saveImageToNode = Signal(object)  # 保存图片到节点
+    saveRoiToNode = Signal(object)    # 保存ROI到节点
+    saveTargetToNode = Signal(object) # 保存Target到节点
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -198,15 +202,15 @@ class ControllerView(QWidget):
         self.connection_status.setStyleSheet("color: red; font-weight: bold;")
         toolbar_layout.addWidget(self.connection_status)
 
+        # 添加当前模式标签 (替代之前的选择区域按钮)
+        self.mode_status_label = QLabel("当前模式: 显示模式")
+        self.mode_status_label.setStyleSheet("font-weight: bold;")
+        toolbar_layout.addWidget(self.mode_status_label)
+
         # 截图按钮 - 直接加入工具栏布局
         self.screenshot_btn = QPushButton("截图")
         self.screenshot_btn.clicked.connect(self.update_device_img)
         toolbar_layout.addWidget(self.screenshot_btn)
-
-        # 选择区域按钮 - 直接加入工具栏布局
-        self.select_area_btn = QPushButton("选择区域:关")
-        self.select_area_btn.clicked.connect(self.toggle_selection_mode)
-        toolbar_layout.addWidget(self.select_area_btn)
 
         # 重置视图按钮 - 直接加入工具栏布局
         self.reset_view_btn = QPushButton("重置视图")
@@ -230,6 +234,11 @@ class ControllerView(QWidget):
         self.device_view = DeviceImageView(control=self)
         self.device_view.selectionChanged.connect(self.on_selection_changed)
         self.device_view.selectionCleared.connect(self.on_selection_cleared)
+        # 连接新的信号
+        self.device_view.saveImageToNodeSignal.connect(self.on_save_image_to_node)
+        self.device_view.saveRoiToNodeSignal.connect(self.on_save_roi_to_node)
+        self.device_view.saveTargetToNodeSignal.connect(self.on_save_target_to_node)
+        self.device_view.modeChangedSignal.connect(self.update_mode_status)
         right_layout.addWidget(self.device_view)
 
     def toggle_left_panel(self):
@@ -371,11 +380,14 @@ class ControllerView(QWidget):
             self.connection_status.setText("未连接")
             self.connection_status.setStyleSheet("color: red; font-weight: bold;")
 
-    def toggle_selection_mode(self):
-        """切换选择区域模式"""
-        self.selection_mode = not self.selection_mode
-        self.select_area_btn.setText(f"选择区域:{'开' if self.selection_mode else '关'}")
-        self.device_view.toggle_selection_mode(self.selection_mode)
+    def update_mode_status(self, is_selection_mode):
+        """更新模式状态标签"""
+        self.selection_mode = is_selection_mode
+        if is_selection_mode:
+            self.mode_status_label.setText("当前模式: 框选模式")
+        else:
+            self.mode_status_label.setText("当前模式: 显示模式")
+
     @asyncSlot()
     async def update_device_img(self):
         """更新设备截图"""
@@ -403,6 +415,21 @@ class ControllerView(QWidget):
         """当选择区域被清除时"""
         # 可以在这里处理选择区域清除事件
         pass
+
+    def on_save_image_to_node(self, image_data):
+        """处理保存图片到节点信号"""
+        print(f"保存图片到节点: {self.selected_node_name}")
+        self.saveImageToNode.emit(image_data)
+
+    def on_save_roi_to_node(self, roi_data):
+        """处理保存ROI到节点信号"""
+        print(f"保存ROI到节点: {self.selected_node_name}, ROI: {roi_data}")
+        self.saveRoiToNode.emit(roi_data)
+
+    def on_save_target_to_node(self, target_data):
+        """处理保存Target到节点信号"""
+        print(f"保存Target到节点: {self.selected_node_name}, Target: {target_data}")
+        self.saveTargetToNode.emit(target_data)
 
     def update_selected_node(self, node):
         """更新已选中节点的标签"""

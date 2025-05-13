@@ -10,22 +10,27 @@ from src.node_system.port import InputPort, OutputPort
 from src.pipeline import TaskNode
 
 
+# 在Node类中添加一个类变量作为所有节点的固定高度
 class Node(QGraphicsItem):
     # Node type constants
     TYPE_GENERIC = 0
     TYPE_RECOGNITION = 1
     TYPE_UNKNOWN = 2
 
+    # 添加固定高度常量
+    FIXED_NODE_HEIGHT = 200  # 设置所有节点统一的高度值
+
     # Shared unknown image
     _unknown_image = None
 
-    def __init__(self, title="", task_node=None, parent=None, default_image_path="default_image.png", node_type=None):
+    def __init__(self, title="Unknown Node", task_node=None, parent=None, default_image_path="default_image.png",
+                 node_type=TYPE_UNKNOWN):
         super().__init__(parent)
         self.task_node = task_node
         self.node_type = node_type if node_type is not None else self._determine_node_type()
 
         # Set title based on task_node.name if available, otherwise use provided title
-        self.title = self._get_node_title(title)
+        self.title = title
 
         # Basic configuration
         self.image_dir = self._get_image_directory()
@@ -36,14 +41,15 @@ class Node(QGraphicsItem):
         self.content_start = self.header_height + 10
         self.image_height = 80
 
-        # Initialize bounds based on node type
-        self.bounds = QRectF(0, 0, 240, 180 if self.node_type == self.TYPE_UNKNOWN else 200)
+        # 修改：使用固定高度初始化所有节点
+        self.bounds = QRectF(0, 0, 240, self.FIXED_NODE_HEIGHT)
 
         # Configure item flags
         self.setFlag(QGraphicsItem.ItemIsSelectable)
         self.setFlag(QGraphicsItem.ItemIsMovable)
         self.setFlag(QGraphicsItem.ItemSendsGeometryChanges)
 
+        self._load_images()
         # Initialize ports
         self.input_port = None
         self.output_ports = {}
@@ -51,12 +57,12 @@ class Node(QGraphicsItem):
 
         # Initialize collapse state
         self.collapsed = False
-        self.original_height = self.bounds.height()
+        self.original_height = self.FIXED_NODE_HEIGHT  # 修改：使用固定高度
 
     def _get_node_title(self, default_title=""):
         """Get node title from task_node.name if available, otherwise use default_title"""
-        if self.node_type == self.TYPE_UNKNOWN:
-            return "Unknown Node"
+        if self.node_type == self.TYPE_UNKNOWN and self.title:
+            return self.title
         elif self.task_node and hasattr(self.task_node, 'name') and self.task_node.name:
             return self.task_node.name
         return default_title
@@ -296,26 +302,25 @@ class Node(QGraphicsItem):
         return colors
 
     def _paint_recognition_content(self, painter, colors):
-        """Paint recognition node content"""
+        """Paint recognition node content - show only the image"""
         # Skip if no image or null image
         if not self.recognition_image or self.recognition_image.isNull():
-            # If no image, still display properties
-            if hasattr(self.task_node, 'recognition'):
-                self._draw_property(
-                    painter,
-                    "Recognition",
-                    self.task_node.recognition,
-                    self.content_start + 10,
-                    colors['property_title'],
-                    colors['property_value']
-                )
+            # Show placeholder text if no image is available
+            painter.setPen(colors['property_title'])
+            painter.setFont(QFont("Arial", 9))
+            painter.drawText(
+                QRectF(10, self.content_start + 10, self.bounds.width() - 20, 30),
+                Qt.AlignCenter,
+                "No Template Image"
+            )
             return
 
-        # Calculate image size and position
-        img_size = min(self.bounds.width() - 30, self.bounds.height() - self.content_start - 20)
+        # Calculate image size and position - make it larger for recognition nodes
+        # Use more space since we don't need to show properties
+        img_size = min(self.bounds.width() - 20, self.bounds.height() - self.content_start - 15)
         img_rect = QRectF(
             (self.bounds.width() - img_size) / 2,
-            self.content_start,
+            self.content_start + 5,
             img_size,
             img_size
         )
@@ -327,18 +332,6 @@ class Node(QGraphicsItem):
 
         # Draw image
         painter.drawPixmap(img_rect.toRect(), self.recognition_image)
-
-        # Draw recognition property if available
-        y_pos = img_rect.bottom() + 10
-        if hasattr(self.task_node, 'recognition'):
-            self._draw_property(
-                painter,
-                "Recognition",
-                self.task_node.recognition,
-                y_pos,
-                colors['property_title'],
-                colors['property_value']
-            )
 
     def _paint_unknown_content(self, painter, colors):
         """Paint unknown node content"""
@@ -370,7 +363,7 @@ class Node(QGraphicsItem):
             painter.drawPixmap(img_rect.toRect(), self._unknown_image)
 
     def _paint_properties(self, painter, colors):
-        """Paint node properties"""
+        """Paint node properties with emphasis on node type"""
         if not self.task_node:
             return
 
@@ -509,7 +502,6 @@ class Node(QGraphicsItem):
     def set_task_node(self, task_node):
         """Set or update the task node"""
         self.task_node = task_node
-        original_height = self.bounds.height()
 
         # Determine new node type
         old_type = self.node_type
@@ -518,37 +510,79 @@ class Node(QGraphicsItem):
         # Update node title based on task_node
         self.title = self._get_node_title(self.title)
 
-        # Set fixed height for unknown nodes
-        if self.node_type == self.TYPE_UNKNOWN:
-            self.bounds.setHeight(180)
+        # 关键修复：无论节点类型是否改变，都正确清理旧端口
+        self._remove_existing_ports()
 
-        # Reinitialize ports if node type changed
-        if old_type != self.node_type:
-            self.input_port = None
-            self.output_ports = {}
-            self._initialize_ports()
+        # 初始化新端口
+        self._initialize_ports()
 
         # Reload images
         self._load_images()
 
-        # Resize and update
-        if self.node_type != self.TYPE_UNKNOWN:
-            self.resize_to_content()
+        # 保持固定高度
+        if not self.collapsed:
+            self.bounds.setHeight(self.FIXED_NODE_HEIGHT)
 
-        self.bounds.setHeight(max(original_height, self.bounds.height()))
         self._update_port_positions()
         self._update_connections()
         self.update()
+
+    def _remove_existing_ports(self):
+        """移除所有现有端口，包括从场景中删除它们"""
+        # 处理输入端口
+        if self.input_port:
+            # 断开所有连接
+            if self.input_port.is_connected():
+                connection = self.input_port.get_connection()
+                if connection:
+                    # 从源端口移除连接
+                    source_port = connection.get_source_port()
+                    if source_port:
+                        source_port.remove_connection(connection)
+                    # 从场景中移除连接
+                    scene = self.scene()
+                    if scene and connection.scene() == scene:
+                        scene.removeItem(connection)
+
+            # 从场景中移除端口
+            scene = self.scene()
+            if scene and self.input_port.scene() == scene:
+                scene.removeItem(self.input_port)
+
+            # 清空引用
+            self.input_port = None
+
+        # 处理输出端口
+        for port_type, port in list(self.output_ports.items()):
+            # 断开所有连接
+            connections = port.get_connections()
+            for connection in list(connections):
+                # 从目标端口移除连接
+                target_port = connection.get_target_port()
+                if target_port:
+                    target_port.set_connection(None)
+
+                # 从场景中移除连接
+                scene = self.scene()
+                if scene and connection.scene() == scene:
+                    scene.removeItem(connection)
+
+            # 从场景中移除端口
+            scene = self.scene()
+            if scene and port.scene() == scene:
+                scene.removeItem(port)
+
+        # 清空引用
+        self.output_ports = {}
 
     def toggle_collapse(self):
         """Toggle collapsed state"""
         self.collapsed = not self.collapsed
 
         if self.collapsed:
-            self.original_height = self.bounds.height()
             self.bounds.setHeight(self.header_height)
         else:
-            self.bounds.setHeight(self.original_height)
+            self.bounds.setHeight(self.FIXED_NODE_HEIGHT)  # 修改：使用固定高度
 
         self._update_port_positions()
         self._update_connections()
@@ -567,29 +601,17 @@ class Node(QGraphicsItem):
         super().mousePressEvent(event)
 
     def resize_to_content(self):
-        """Resize node to fit content"""
+        """
+        修改后的resize_to_content方法，保持固定高度
+        只调整宽度（如果需要）
+        """
         if self.collapsed:
             return
 
-        min_height = self.header_height + 10
+        # 保持高度固定，只处理宽度（如果需要）
+        # 此处可以添加宽度调整逻辑，但高度保持不变
 
-        # Calculate content height based on node type
-        if self.node_type == self.TYPE_RECOGNITION:
-            img_size = min(self.bounds.width() - 30, 160)
-            content_height = self.content_start + img_size + 40
-        elif self.node_type == self.TYPE_UNKNOWN:
-            content_height = 180  # Fixed height
-        else:
-            property_count = len(self._get_properties_to_display())
-            properties_height = property_count * 25 + 10
-            content_height = self.content_start + properties_height
-
-        # Set new height
-        new_height = max(min_height, content_height)
-        self.bounds.setHeight(new_height)
-        self.original_height = new_height
-
-        # Update ports and connections
+        # 更新端口和连接
         self._update_port_positions()
         self._update_connections()
         self.update()
@@ -600,8 +622,8 @@ class Node(QGraphicsItem):
             return
 
         self.bounds.setWidth(max(100, width))
-        self.bounds.setHeight(max(self.header_height + 10, height))
-        self.original_height = self.bounds.height()
+        # 修改：忽略传入的高度参数，总是使用固定高度
+        self.bounds.setHeight(self.FIXED_NODE_HEIGHT)
 
         self._update_port_positions()
         self._update_connections()
@@ -614,9 +636,3 @@ class Node(QGraphicsItem):
     def get_scene_center_pos(self):
         """Get center position in scene coordinates"""
         return self.mapToScene(self.get_center_pos())
-
-
-# Factory function for unknown nodes
-def create_unknown_node(title="Unknown Node", task_node=None, parent=None):
-    """Create an unknown type node"""
-    return Node(title=title, task_node=task_node, parent=parent, node_type=Node.TYPE_UNKNOWN)
