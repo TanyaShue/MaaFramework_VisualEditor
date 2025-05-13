@@ -1,7 +1,8 @@
 import json
+import os
 from typing import Dict, Any, Optional, List, Tuple
 
-from PySide6.QtCore import Signal, QTimer
+from PySide6.QtCore import Signal, QTimer, Slot, QRectF
 from PySide6.QtGui import QTextCursor, QFont
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QLabel, QFormLayout,
                                QLineEdit, QSpinBox, QPushButton, QCheckBox,
@@ -845,32 +846,84 @@ class NodePropertiesEditor(QWidget):
 
     def on_recognition_changed(self, rec_type):
         """处理识别算法变化"""
+        if self.is_updating_ui:
+            return
+
+        # 先保存当前算法的所有已修改属性
+        old_rec_type = self.get_node_value("recognition")
+        if old_rec_type in self.property_widgets:
+            widgets = self.property_widgets.get(old_rec_type, {})
+            for prop_name, widget in widgets.items():
+                value = self.get_widget_value(widget)
+                # 保存非默认值的属性
+                default_value = self.get_property_default(prop_name, old_rec_type)
+                if value != default_value:
+                    self.save_node_property(prop_name, value)
+
+        # 然后切换到新算法
         if rec_type in self.recognition_types:
             index = self.recognition_types.index(rec_type)
             self.recognition_stack.setCurrentIndex(index)
             self.boxes["识别算法特有属性"].set_expanded(rec_type != "DirectHit")
 
-            # 更新阈值等属性的默认值
+            # 更新为recognition类型
+            self.save_node_property("recognition", rec_type)
+
+            # 更新新算法的属性值
             widgets = self.property_widgets.get(rec_type, {})
             for prop_name, widget in widgets.items():
-                # 只更新未被用户修改过的属性值（即节点中不存在的属性）
-                if not hasattr(self.current_node, prop_name) and rec_type in self.ALGORITHM_DEFAULTS and prop_name in \
-                        self.ALGORITHM_DEFAULTS[rec_type]:
-                    default_value = self.ALGORITHM_DEFAULTS[rec_type][prop_name]
-                    self.set_widget_value(widget, default_value)
+                # 如果current_node中已有该属性值，则使用它
+                if hasattr(self.current_node, prop_name):
+                    value = getattr(self.current_node, prop_name)
+                    self.set_widget_value(widget, value)
+                else:
+                    # 否则使用算法特定的默认值
+                    if rec_type in self.ALGORITHM_DEFAULTS and prop_name in self.ALGORITHM_DEFAULTS[rec_type]:
+                        default_value = self.ALGORITHM_DEFAULTS[rec_type][prop_name]
+                        self.set_widget_value(widget, default_value)
 
     def on_action_changed(self, action_type):
         """处理动作类型变化"""
+        if self.is_updating_ui:
+            return
+
+        # 先保存当前动作的所有已修改属性
+        old_action_type = self.get_node_value("action")
+        if old_action_type in self.property_widgets:
+            widgets = self.property_widgets.get(old_action_type, {})
+            for prop_name, widget in widgets.items():
+                value = self.get_widget_value(widget)
+                # 保存非默认值的属性
+                default_value = self.PROPERTY_DEFAULTS.get(prop_name)
+                if value != default_value:
+                    self.save_node_property(prop_name, value)
+
+        # 然后切换到新动作
         if action_type in self.action_types:
             index = self.action_types.index(action_type)
             self.action_stack.setCurrentIndex(index)
             self.boxes["执行动作特有属性"].set_expanded(action_type not in ["DoNothing", "StopTask"])
 
+            # 更新action类型
+            self.save_node_property("action", action_type)
+
+            # 更新新动作的属性值
+            widgets = self.property_widgets.get(action_type, {})
+            for prop_name, widget in widgets.items():
+                # 如果current_node中已有该属性值，则使用它
+                if hasattr(self.current_node, prop_name):
+                    value = getattr(self.current_node, prop_name)
+                    self.set_widget_value(widget, value)
+                else:
+                    # 否则使用默认值
+                    default_value = self.PROPERTY_DEFAULTS.get(prop_name)
+                    if default_value is not None:
+                        self.set_widget_value(widget, default_value)
+
     def apply_changes(self, show_message=True):
         """应用更改"""
         if not self.current_node:
             return
-
         # 更新所有属性
         for prop_name, widget in self.widgets.items():
             if prop_name == "name":
@@ -884,12 +937,9 @@ class NodePropertiesEditor(QWidget):
 
         self.node_changed.emit(self.current_node)
 
-        if show_message and not self.auto_save:
-            QMessageBox.information(self, "提示", "节点属性已更新")
-
     def apply_changes_silent(self):
         """静默应用更改"""
-        self.apply_changes(show_message=False)
+        self.apply_changes()
 
     def save_algorithm_properties(self):
         """保存算法特定属性"""
@@ -1016,21 +1066,37 @@ class NodePropertiesEditor(QWidget):
 
     def update_preview_images(self):
         """更新预览图像"""
-        # 简化的预览更新逻辑
-        if not hasattr(self.current_node, 'template') or not self.current_node.template:
+        # 清除现有图片（保留添加按钮）
+        self.image_preview_container.clear_images()
+
+        if not self.current_node:
             return
 
-        templates = self.current_node.template if isinstance(self.current_node.template, list) else [
-            self.current_node.template]
+        # 获取识别算法类型
+        recognition_type = self.get_node_value("recognition")
 
+        # 需要预览图片的算法类型
+        image_based_algorithms = ["TemplateMatch", "FeatureMatch"]
+
+        if recognition_type not in image_based_algorithms:
+            return
+
+        # 获取模板路径
+        templates = []
+        if hasattr(self.current_node, 'template'):
+            template_value = self.current_node.template
+            if isinstance(template_value, list):
+                templates = template_value
+            elif isinstance(template_value, str) and template_value:
+                templates = [template_value]
+
+        # 添加图片到预览容器
         for template_path in templates:
             if template_path:
-                self.add_template_to_preview(template_path)
-
-    def add_template_to_preview(self, template_path):
-        """添加模板到预览"""
-        # 简化的预览添加逻辑
-        pass
+                # 构造完整路径：base_resource_path/image/template_path
+                base_path = config_manager.config["recent_files"]["base_resource_path"]
+                final_path = os.path.join(base_path, "image", template_path)
+                self.image_preview_container.add_image(final_path)
 
     def toggle_auto_save(self, checked):
         """切换自动保存"""
@@ -1039,3 +1105,26 @@ class NodePropertiesEditor(QWidget):
 
         if checked:
             self.apply_changes_silent()
+
+    @Slot(str,object)
+    def node_property_change(self,prop_name,value):
+        if not self.current_node:
+            return
+        self.apply_changes_silent()
+
+        if prop_name == "template":
+            if self.current_node.template is None:
+                self.current_node.template=[]
+            if isinstance(self.current_node.template, list):
+                self.current_node.template.append(value)
+            elif isinstance(self.current_node.template, str):
+                self.current_node.template = [self.current_node.template,value]
+
+        if prop_name == "roi":
+            self.current_node.roi =value
+
+        if prop_name == "target":
+            self.current_node.target = value
+
+
+        self.update_ui_from_node()

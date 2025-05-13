@@ -110,9 +110,7 @@ class DeviceImageView(QGraphicsView):
     selectionChanged = Signal(QRectF)
     selectionCleared = Signal()
     # 添加新信号
-    saveImageToNodeSignal = Signal(str)
-    saveRoiToNodeSignal = Signal(str)
-    saveTargetToNodeSignal = Signal(str)
+    NodeChangeSignal = Signal(str, object)
     modeChangedSignal = Signal(bool)  # True = 框选模式, False = 显示模式
 
     def __init__(self, parent=None, control=None):
@@ -315,12 +313,8 @@ class DeviceImageView(QGraphicsView):
             roi_w = int(sel_rect.width())
             roi_h = int(sel_rect.height())
 
-            return {
-                'x': roi_x,
-                'y': roi_y,
-                'width': roi_w,
-                'height': roi_h
-            }
+            return [roi_x, roi_y, roi_w, roi_h]
+
         except (RuntimeError, AttributeError):
             # 处理潜在错误
             self.selection_rect = None
@@ -629,7 +623,7 @@ class DeviceImageView(QGraphicsView):
 
         # 发射信号（假设信号定义为带参数：str）
         if relative_path:
-            self.saveImageToNodeSignal.emit(relative_path)
+            self.NodeChangeSignal.emit("template", relative_path)
 
     def _save_roi_to_node(self):
         """保存选区ROI到节点"""
@@ -642,7 +636,7 @@ class DeviceImageView(QGraphicsView):
             return
 
         # 发送信号
-        self.saveRoiToNodeSignal.emit(roi_data)
+        self.NodeChangeSignal.emit("roi", roi_data)
 
     def _save_target_to_node(self):
         """保存选区为目标到节点"""
@@ -650,34 +644,11 @@ class DeviceImageView(QGraphicsView):
             return
 
         try:
-            # 获取标准化的选区坐标
-            norm_rect = self.get_normalized_selection()
-            if not norm_rect:
+            target_data = self.get_roi_data()
+            if not target_data:
                 return
-
-            # 从原始图像中提取选区
-            pixmap_rect = self.original_pixmap.rect()
-            x = int(norm_rect.x() * pixmap_rect.width())
-            y = int(norm_rect.y() * pixmap_rect.height())
-            w = int(norm_rect.width() * pixmap_rect.width())
-            h = int(norm_rect.height() * pixmap_rect.height())
-
-            # 创建裁剪后的图像
-            cropped = self.original_pixmap.copy(x, y, w, h)
-
-            # 准备目标数据
-            target_data = {
-                'image': cropped,
-                'roi': {
-                    'x': x,
-                    'y': y,
-                    'width': w,
-                    'height': h
-                }
-            }
-
             # 发送信号
-            self.saveTargetToNodeSignal.emit(target_data)
+            self.NodeChangeSignal.emit("target", target_data)
 
         except (RuntimeError, AttributeError) as e:
             print(f"保存目标时发生错误: {e}")

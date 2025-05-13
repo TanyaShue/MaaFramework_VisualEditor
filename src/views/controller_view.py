@@ -37,14 +37,12 @@ class DeviceSearchThread(QThread):
 
 class ControllerView(QWidget):
     # 添加新信号
-    saveImageToNode = Signal(object)  # 保存图片到节点
-    saveRoiToNode = Signal(object)    # 保存ROI到节点
-    saveTargetToNode = Signal(object) # 保存Target到节点
 
     def __init__(self, parent=None):
         super().__init__(parent)
 
         # 初始化状态变量
+        self.selected_node = None
         self.file_name = None
         self.device_view = None
         self.selected_node_name = None
@@ -416,6 +414,7 @@ class ControllerView(QWidget):
         """更新已选中节点的标签"""
         try:
             self.selected_node_name = node[0].task_node.name
+            self.selected_node=node[0].task_node
             label_text = f"选中节点:{self.selected_node_name}"
         except (IndexError, AttributeError, TypeError):
             self.selected_node_name = None

@@ -292,6 +292,7 @@ class MainWindow(QMainWindow):
         self.canvas.open_node.connect(self.show_properties_dock)
         self.resource_library.resource_opened.connect(self.on_resource_opened)
         self.property_editor.node_changed.connect(self.canvas.node_manager.update_from_node)
+        self.controller_view.device_view.NodeChangeSignal.connect(self.property_editor.node_property_change)
 
     @Slot()
     def show_properties_dock(self):
