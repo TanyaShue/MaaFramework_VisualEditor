@@ -511,7 +511,7 @@ class Node(QGraphicsItem):
         self.title = self._get_node_title(self.title)
 
         # 关键修复：无论节点类型是否改变，都正确清理旧端口
-        self._remove_existing_ports()
+        # self._remove_existing_ports()
 
         # 初始化新端口
         self._initialize_ports()

@@ -164,7 +164,7 @@ class ConnectNodesCommand(Command):
         """执行连接命令"""
         # 先设置connecting_port，然后调用finish_connection方法
         self.canvas.connection_manager.connecting_port = self.source_port
-        self.connection = self.canvas.connection_manager.finish_connection(self.target_port)
+        self.connection = self.canvas.connection_manager.create_connection(self.source_port,self.target_port)
         return self.connection is not None
 
     def undo(self):
@@ -191,7 +191,7 @@ class DisconnectNodesCommand(Command):
         """撤销断开命令"""
         # 使用正确的方法恢复连接
         self.canvas.connection_manager.connecting_port = self.source_port
-        self.connection = self.canvas.connection_manager.finish_connection(self.target_port)
+        self.connection = self.canvas.connection_manager.create_connection(self.source_port,self.target_port)
 
 
 class CreateUnknownNodeCommand(Command):

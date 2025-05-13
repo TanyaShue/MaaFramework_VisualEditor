@@ -307,9 +307,6 @@ class NodeCanvas(QWidget):
                         )
 
                         port_name = getattr(target_port, "port_name", "输入")
-                        self.info_label.setText(
-                            f"已移除从 {source_port.parent_node.id} 到 {target_port.parent_node.id} 的 {port_name} 连接"
-                        )
                         # 取消当前连线操作
                         self.connection_manager.cancel_connection()
                     else:

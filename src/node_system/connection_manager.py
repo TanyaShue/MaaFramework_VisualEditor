@@ -59,28 +59,6 @@ class ConnectionManager:
         path = build_connection_path(self.connecting_port, None, target_pos)
         self.temp_connection.setPath(path)
 
-    def finish_connection(self, target_port):
-        """
-        完成连线操作，创建实际的 Connection 对象
-
-        参数:
-            target_port: 连接的目标端口
-
-        返回:
-            创建的连接对象，如果无法连接则返回None
-        """
-        if not self.connecting_port or not target_port:
-            return None
-
-        if not self.can_connect(self.connecting_port, target_port):
-            return None
-
-        # 获取连接类型
-        conn_type = getattr(self.connecting_port, 'port_type', 'next')
-        connection = self.create_connection(self.connecting_port, target_port)
-        self.cancel_connection()
-        return connection
-
     def cancel_connection(self):
         """取消当前连线操作"""
         if self.temp_connection:
@@ -409,8 +387,13 @@ class ConnectionManager:
             name_to_append = target_task_node.name
             attr_value = getattr(source_task_node, attr_name, None)
 
-            # 转换为列表（如果是字符串）
-            if isinstance(attr_value, str):
+            # 如果属性不存在或为 None，则初始化为空列表
+            if attr_value is None:
+                attr_value = []
+                setattr(source_task_node, attr_name, attr_value)
+
+            # 如果是字符串，则转换为列表
+            elif isinstance(attr_value, str):
                 attr_value = [attr_value]
                 setattr(source_task_node, attr_name, attr_value)
 
@@ -421,7 +404,6 @@ class ConnectionManager:
         if target_port.parent_node.task_node:
             source_task_node = source_port.parent_node.task_node
             target_task_node = target_port.parent_node.task_node
-
             if source_port.port_type == "next":
                 append_task_name(source_task_node, target_task_node, "next")
             elif source_port.port_type == "on_error":
@@ -430,6 +412,7 @@ class ConnectionManager:
                 append_task_name(source_task_node, target_task_node, "interrupt")
         # 更新连接的路径
         connection.update_path()
+        self.cancel_connection()  # 添加这行取消临时连接状态
 
         return connection
 
@@ -441,39 +424,3 @@ class ConnectionManager:
             list: 所有连接对象的列表
         """
         return self.connections.copy()
-
-    def create_connection_with_type(self, source_port, target_port, conn_type=None):
-        """
-        创建指定类型的连接
-
-        参数:
-            source_port: 源端口
-            target_port: 目标端口
-            conn_type: 连接类型，可选
-
-        返回:
-            创建的连接对象，如果无法连接则返回None
-        """
-        # 检查连接是否有效
-        if not self.can_connect(source_port, target_port):
-            return None
-
-        # 如果指定了连接类型，且源端口有port_type属性，设置它
-        if conn_type and hasattr(source_port, 'port_type'):
-            source_port.port_type = conn_type
-
-        # 检查是否已经存在连接
-        existing_connection = self.find_connection(source_port, target_port)
-        if existing_connection:
-            return existing_connection
-
-        # 创建新的连接
-        connection = Connection(source_port, target_port, self.scene)
-
-        # 添加到连接列表
-        self.connections.append(connection)
-
-        # 更新连接的路径
-        connection.update_path()
-
-        return connection

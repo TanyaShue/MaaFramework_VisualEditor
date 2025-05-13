@@ -553,32 +553,6 @@ class CanvasNodeManager(QObject):
             if node_name not in task_node.interrupt:
                 task_node.interrupt.append(node_name)
 
-    def validate(self):
-        """
-        验证当前Pipeline配置
-
-        返回:
-            dict: 验证错误信息
-        """
-        self._update_pipeline_from_visual()
-
-        # 执行Pipeline验证
-        config_errors = self.pipeline.validate()
-        reference_errors = self.pipeline.check_references()
-
-        # 合并错误信息
-        errors = {}
-        for name, node_errors in config_errors.items():
-            errors[name] = node_errors
-
-        for name, node_errors in reference_errors.items():
-            if name in errors:
-                errors[name].extend(node_errors)
-            else:
-                errors[name] = node_errors
-
-        return errors
-
     def _layout_nodes(self, pipeline, node_mapping):
         """
         优化的节点布局算法，处理循环依赖问题

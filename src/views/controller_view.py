@@ -30,7 +30,6 @@ class DeviceSearchThread(QThread):
             elif self.search_type == "WIN32":
                 devices = Toolkit.find_desktop_windows()
                 devices = [device for device in devices if device.window_name != '']
-            print(devices)
             self.devices_found.emit(devices)
         except Exception as e:
             self.search_error.emit(str(e))
@@ -235,9 +234,6 @@ class ControllerView(QWidget):
         self.device_view.selectionChanged.connect(self.on_selection_changed)
         self.device_view.selectionCleared.connect(self.on_selection_cleared)
         # 连接新的信号
-        self.device_view.saveImageToNodeSignal.connect(self.on_save_image_to_node)
-        self.device_view.saveRoiToNodeSignal.connect(self.on_save_roi_to_node)
-        self.device_view.saveTargetToNodeSignal.connect(self.on_save_target_to_node)
         self.device_view.modeChangedSignal.connect(self.update_mode_status)
         right_layout.addWidget(self.device_view)
 
@@ -415,21 +411,6 @@ class ControllerView(QWidget):
         """当选择区域被清除时"""
         # 可以在这里处理选择区域清除事件
         pass
-
-    def on_save_image_to_node(self, image_data):
-        """处理保存图片到节点信号"""
-        print(f"保存图片到节点: {self.selected_node_name}")
-        self.saveImageToNode.emit(image_data)
-
-    def on_save_roi_to_node(self, roi_data):
-        """处理保存ROI到节点信号"""
-        print(f"保存ROI到节点: {self.selected_node_name}, ROI: {roi_data}")
-        self.saveRoiToNode.emit(roi_data)
-
-    def on_save_target_to_node(self, target_data):
-        """处理保存Target到节点信号"""
-        print(f"保存Target到节点: {self.selected_node_name}, Target: {target_data}")
-        self.saveTargetToNode.emit(target_data)
 
     def update_selected_node(self, node):
         """更新已选中节点的标签"""
