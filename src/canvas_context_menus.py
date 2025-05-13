@@ -1,7 +1,10 @@
+import os
+
 from PySide6.QtCore import QPointF
 from PySide6.QtWidgets import QMenu, QInputDialog, QMessageBox
 
 from src.canvas_commands import AddNodeCommand, DeleteNodesCommand, DisconnectNodesCommand
+from src.config_manager import config_manager
 from src.node_system.node import Node
 from src.pipeline import TaskNode
 
@@ -111,7 +114,7 @@ class ContextMenus:
         for node_title, node_type in node_types:
             add_node_menu.addAction(node_title).triggered.connect(
                 lambda checked=False, t=node_title, type=node_type:
-                self._add_node( scene_pos)
+                self._add_common_node( scene_pos)
             )
 
         menu.addMenu(add_node_menu)
@@ -226,18 +229,8 @@ class ContextMenus:
         # 创建新节点
         new_nodes = []
         for node_data in self.canvas.clipboard:
-            # 生成唯一ID
-            base_id = node_data['id']
-            new_id = base_id
-            suffix = 1
-
-            # 检查ID是否已存在，如果存在则添加后缀
-            while any(node.id == new_id for node in self.canvas.node_manager.nodes):
-                new_id = f"{base_id}_{suffix}"
-                suffix += 1
-
             # 创建新节点
-            new_node = Node(new_id, node_data['title'])
+            new_node = Node(node_data['title'])
 
             # 设置位置
             new_pos = QPointF(
@@ -339,22 +332,35 @@ class ContextMenus:
         self.canvas.view.centerOn(0, 0)
         self.canvas.info_label.setText("视图已重置")
 
-    def _add_node(self, scene_pos):
-        """在指定位置添加新节点
+    def _add_common_node(self, scene_pos):
+        """
+        在指定位置添加新节点
 
         Args:
             scene_pos: 场景中的位置
         """
-        # 处理显示名称："通用节点" 或 "通用节点X"
-        display_title = "通用节点"
+        # 获取当前打开的文件路径
+        full_path = config_manager.config.get("recent_files", {}).get("current_opened_file")
+        default_title = "通用节点"
+
+        # 提取文件名（不含路径和扩展名）
+        if full_path:
+            base_name = os.path.basename(full_path)
+            filename = os.path.splitext(base_name)[0]
+            base_title = filename or default_title
+        else:
+            base_title = default_title
+
+        display_title = base_title
         title_count = 1
 
-        # 检查是否已存在同名节点
+        # 获取已存在的所有节点标题
         existing_titles = [node.title for node in self.canvas.node_manager.nodes]
-        while display_title in existing_titles:
-            display_title = f"通用节点{title_count}"
-            title_count += 1
 
+        # 如果标题重复，添加数字后缀避免重复
+        while display_title in existing_titles:
+            display_title = f"{base_title}{title_count}"
+            title_count += 1
         # 创建新节点 - 不再传递ID参数
         new_node = Node(title=display_title)
 
