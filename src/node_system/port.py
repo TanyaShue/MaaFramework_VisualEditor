@@ -3,7 +3,6 @@ from PySide6.QtGui import QPainter, QColor, QPen, QBrush, QPainterPath, QFont
 from PySide6.QtWidgets import QGraphicsItem
 
 
-
 class Port(QGraphicsItem):
     def __init__(self, parent_node, position, direction, parent=None):
         super().__init__(parent)
@@ -12,7 +11,7 @@ class Port(QGraphicsItem):
         self.direction = direction  # 'top', 'right', 'bottom', 'left'
         self.connections = []
 
-        # 你可以根据需要修改这两个尺寸
+        # 端口尺寸
         self.port_width = 50  # 横向时的"宽度"
         self.port_height = 20  # 横向时的"高度"
 
@@ -33,11 +32,7 @@ class Port(QGraphicsItem):
         # 创建一个圆角矩形路径
         path = QPainterPath()
 
-        # ----------------------------
-        # 关键：根据 direction 来判断形状
-        # top/bottom -> 横向胶囊（宽 > 高）
-        # left/right -> 纵向胶囊（高 > 宽）
-        # ----------------------------
+        # 根据 direction 来判断形状
         if self.direction in ['top', 'bottom']:
             # 横向胶囊
             path.addRoundedRect(
@@ -138,7 +133,7 @@ class Port(QGraphicsItem):
 
 class InputPort(Port):
     def __init__(self, parent_node, position, parent=None):
-        # 这里默认设置成 'top'
+        # 设置方向为 'top'
         super().__init__(parent_node, position, 'top', parent)
         # 设置输入端口的文本标签
         self.label = "输入"
@@ -151,11 +146,11 @@ class InputPort(Port):
         return len(self.connections) > 0
 
     def get_connections(self):
-        # 返回所有连接的输出端口
+        # 返回所有连接
         return self.connections
 
     def can_connect(self, other_port):
-        # 修改为允许多个输出端口连接，只要是 OutputPort 就可以连接
+        # 允许连接到输出端口
         return isinstance(other_port, OutputPort)
 
 
@@ -185,5 +180,5 @@ class OutputPort(Port):
         return self.connections
 
     def can_connect(self, other_port):
-        # 修改：允许连接到任何 InputPort，无论其是否已有连接
+        # 允许连接到任何 InputPort
         return isinstance(other_port, InputPort)

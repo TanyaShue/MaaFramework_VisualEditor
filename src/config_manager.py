@@ -268,8 +268,7 @@ class ConfigManager:
 
         except Exception as e:
             print(f"恢复控制器状态时出错: {str(e)}")
-            import traceback
-            print(traceback.format_exc())
+
 
     def save_task_file_state(self, file_path):
         """保存当前打开的任务文件路径。"""

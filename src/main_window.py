@@ -1,6 +1,3 @@
-import json
-import os
-
 from PySide6.QtCore import Qt, Slot
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (QMainWindow, QDockWidget, QStatusBar, QToolBar,
@@ -292,6 +289,7 @@ class MainWindow(QMainWindow):
         self.canvas.open_node.connect(self.show_properties_dock)
         self.resource_library.resource_opened.connect(self.on_resource_opened)
         self.property_editor.node_changed.connect(self.canvas.node_manager.update_from_node)
+        self.property_editor.node_name_change.connect(self.canvas.node_manager.update_node_name)
         self.controller_view.device_view.NodeChangeSignal.connect(self.property_editor.node_property_change)
 
     @Slot()
@@ -302,6 +300,7 @@ class MainWindow(QMainWindow):
             dock.raise_()
             self.update_dock_status(dock, True)
 
+    @Slot()
     def update_property_editor(self):
         """当节点选择改变时更新属性编辑器"""
         # selected_nodes = self.canvas.get_selected_nodes()
@@ -313,6 +312,7 @@ class MainWindow(QMainWindow):
             # 假设属性编辑器有一个 set_node 方法
             if hasattr(self.property_editor, 'set_node'):
                 self.property_editor.set_node(node.task_node)
+                self.property_editor.visual_node=node
         else:
             # 多个或零个节点选择时，清空属性编辑器
             if hasattr(self.property_editor, 'clear'):

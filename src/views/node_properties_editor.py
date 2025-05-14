@@ -30,7 +30,7 @@ class NodePropertiesEditor(QWidget):
     """节点属性编辑器"""
 
     node_changed = Signal(object)
-
+    node_name_change=Signal(str,str)
     # 样式常量
     STYLES = {
         "button": """
@@ -106,8 +106,8 @@ class NodePropertiesEditor(QWidget):
         "TemplateMatch": {
             "threshold": 0.7
         },
-        "FeatureMatch":{
-            "count":4
+        "FeatureMatch": {
+            "count": 4
         },
         "OCR": {
             "threshold": 0.3
@@ -115,8 +115,8 @@ class NodePropertiesEditor(QWidget):
         "NeuralNetworkDetect": {
             "threshold": 0.3
         },
-        "ColorMatch":{
-            "count":1
+        "ColorMatch": {
+            "count": 1
         }
         # 可以添加更多算法特定的默认值
     }
@@ -137,7 +137,7 @@ class NodePropertiesEditor(QWidget):
         self.current_node = None
         self.is_updating_ui = False
         self.auto_save = False
-
+        self.visual_node = None
         # 存储所有widget的字典
         self.widgets = {}
         self.property_widgets = {}
@@ -162,6 +162,10 @@ class NodePropertiesEditor(QWidget):
         # 属性编辑选项卡
         properties_tab = self.create_properties_tab()
         self.tab_widget.addTab(properties_tab, "属性")
+
+        # 预览选项卡
+        preview_tab = self.create_preview_tab()
+        self.tab_widget.addTab(preview_tab, "预览")
 
         # JSON选项卡
         json_tab = self.create_json_tab()
@@ -195,6 +199,31 @@ class NodePropertiesEditor(QWidget):
         # 按钮区域
         button_layout = self.create_button_layout()
         layout.addLayout(button_layout)
+
+        return tab
+
+    def create_preview_tab(self):
+        """创建预览选项卡"""
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+
+        # 标题
+        title = QLabel("节点识别预览")
+        title.setStyleSheet("font-weight: bold; font-size: 14px; color: #333;")
+        layout.addWidget(title)
+
+        # 创建图像预览容器
+        self.image_preview_container = ImagePreviewContainer()
+        self.image_preview_container.setMinimumHeight(300)  # 增大预览区域
+
+        # 将预览容器添加到布局中
+        layout.addWidget(self.image_preview_container, 1)
+
+        # 添加说明文本
+        help_text = QLabel("此区域显示识别算法使用的模板图片。支持TemplateMatch和FeatureMatch等基于图片的识别算法。")
+        help_text.setStyleSheet("color: #666; font-style: italic;")
+        help_text.setWordWrap(True)
+        layout.addWidget(help_text)
 
         return tab
 
@@ -245,9 +274,6 @@ class NodePropertiesEditor(QWidget):
         # 基本属性
         self.create_basic_properties()
 
-        # 预览
-        self.create_preview_box()
-
         # 流程控制
         self.create_flow_control()
 
@@ -272,14 +298,6 @@ class NodePropertiesEditor(QWidget):
         }
 
         self.add_properties_to_box(box, configs)
-
-    def create_preview_box(self):
-        """创建预览框"""
-        box = self.create_box("节点识别预览")
-
-        self.image_preview_container = ImagePreviewContainer()
-        self.image_preview_container.setMinimumHeight(150)
-        box.content_layout.addWidget(self.image_preview_container)
 
     def create_flow_control(self):
         """创建流程控制"""
@@ -752,7 +770,8 @@ class NodePropertiesEditor(QWidget):
             self.update_preview_images()
 
             self.update_json_preview()
-
+            # if self.visual_node:
+            #     self.visual_node.set_task_node(self.current_node)
         finally:
             self.is_updating_ui = False
 
@@ -882,6 +901,9 @@ class NodePropertiesEditor(QWidget):
                         default_value = self.ALGORITHM_DEFAULTS[rec_type][prop_name]
                         self.set_widget_value(widget, default_value)
 
+            # 算法变更后更新预览
+            self.update_preview_images()
+
     def on_action_changed(self, action_type):
         """处理动作类型变化"""
         if self.is_updating_ui:
@@ -920,20 +942,29 @@ class NodePropertiesEditor(QWidget):
                     if default_value is not None:
                         self.set_widget_value(widget, default_value)
 
-    def apply_changes(self, show_message=True):
+    def apply_changes(self):
         """应用更改"""
         if not self.current_node:
             return
+
+        old_name = self.current_node.name  # 保存旧名称
+
         # 更新所有属性
         for prop_name, widget in self.widgets.items():
             if prop_name == "name":
-                self.current_node.name = widget.text()
+                new_name = widget.text()
+                if new_name != old_name:
+                    self.current_node.name = new_name
+                    self.node_name_change.emit(old_name, new_name)  # 发出名称变更信号
             else:
                 value = self.get_widget_value(widget)
                 self.save_node_property(prop_name, value)
 
         # 更新算法特定属性
         self.save_algorithm_properties()
+
+        # 更新预览
+        self.update_preview_images()
 
         self.node_changed.emit(self.current_node)
 
@@ -1026,7 +1057,9 @@ class NodePropertiesEditor(QWidget):
 
     def on_tab_changed(self, index):
         """标签页切换"""
-        if index == 1:  # JSON标签页
+        if index == 1:  # 预览标签页
+            self.update_preview_images()
+        elif index == 2:  # JSON标签页
             self.update_json_preview()
 
     def update_json_preview(self):
@@ -1079,6 +1112,8 @@ class NodePropertiesEditor(QWidget):
         image_based_algorithms = ["TemplateMatch", "FeatureMatch"]
 
         if recognition_type not in image_based_algorithms:
+            # 如果当前不是基于图片的算法，显示提示信息
+            # self.image_preview_container.show_message(f"当前算法 {recognition_type} 不使用模板图片")
             return
 
         # 获取模板路径
@@ -1089,6 +1124,10 @@ class NodePropertiesEditor(QWidget):
                 templates = template_value
             elif isinstance(template_value, str) and template_value:
                 templates = [template_value]
+
+        if not templates:
+            # self.image_preview_container.show_message("未设置模板图片")
+            return
 
         # 添加图片到预览容器
         for template_path in templates:
@@ -1106,25 +1145,26 @@ class NodePropertiesEditor(QWidget):
         if checked:
             self.apply_changes_silent()
 
-    @Slot(str,object)
-    def node_property_change(self,prop_name,value):
+    @Slot(str, object)
+    def node_property_change(self, prop_name, value):
         if not self.current_node:
             return
         self.apply_changes_silent()
 
+        print(self.current_node)
+
         if prop_name == "template":
-            if self.current_node.template is None:
-                self.current_node.template=[]
-            if isinstance(self.current_node.template, list):
-                self.current_node.template.append(value)
-            elif isinstance(self.current_node.template, str):
-                self.current_node.template = [self.current_node.template,value]
+            current_template = getattr(self.current_node, "template", None)
+            if current_template is None:
+                self.current_node.template = [value]
+            elif isinstance(current_template, list):
+                current_template.append(value)
+            elif isinstance(current_template, str):
+                self.current_node.template = [current_template, value]
+            else:
+                self.current_node.template = [value]
 
-        if prop_name == "roi":
-            self.current_node.roi =value
-
-        if prop_name == "target":
-            self.current_node.target = value
-
+        elif prop_name in ("roi", "target"):
+            setattr(self.current_node, prop_name, value)
 
         self.update_ui_from_node()

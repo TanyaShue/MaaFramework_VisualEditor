@@ -1,5 +1,6 @@
 import hashlib
 import os
+import math
 
 from PySide6.QtCore import QRectF, Qt, QPointF
 from PySide6.QtGui import QPainter, QFont, QColor, QPen, QBrush, QPainterPath, QPixmap
@@ -10,7 +11,6 @@ from src.node_system.port import InputPort, OutputPort
 from src.pipeline import TaskNode
 
 
-# 在Node类中添加一个类变量作为所有节点的固定高度
 class Node(QGraphicsItem):
     # Node type constants
     TYPE_GENERIC = 0
@@ -30,7 +30,7 @@ class Node(QGraphicsItem):
         self.node_type = node_type if node_type is not None else self._determine_node_type()
 
         # Set title based on task_node.name if available, otherwise use provided title
-        self.title = title
+        self.title = self._get_node_title(title)
 
         # Basic configuration
         self.image_dir = self._get_image_directory()
@@ -41,7 +41,7 @@ class Node(QGraphicsItem):
         self.content_start = self.header_height + 10
         self.image_height = 80
 
-        # 修改：使用固定高度初始化所有节点
+        # 使用固定高度初始化所有节点
         self.bounds = QRectF(0, 0, 240, self.FIXED_NODE_HEIGHT)
 
         # Configure item flags
@@ -49,23 +49,25 @@ class Node(QGraphicsItem):
         self.setFlag(QGraphicsItem.ItemIsMovable)
         self.setFlag(QGraphicsItem.ItemSendsGeometryChanges)
 
-        self._load_images()
         # Initialize ports
         self.input_port = None
         self.output_ports = {}
+
+        # 加载图像和端口
+        self._load_images()
         self._initialize_ports()
 
         # Initialize collapse state
         self.collapsed = False
-        self.original_height = self.FIXED_NODE_HEIGHT  # 修改：使用固定高度
+        self.original_height = self.FIXED_NODE_HEIGHT
 
     def _get_node_title(self, default_title=""):
         """Get node title from task_node.name if available, otherwise use default_title"""
-        if self.node_type == self.TYPE_UNKNOWN and self.title:
-            return self.title
-        elif self.task_node and hasattr(self.task_node, 'name') and self.task_node.name:
+        if self.task_node and hasattr(self.task_node, 'name') and self.task_node.name:
             return self.task_node.name
-        return default_title
+        elif default_title:
+            return default_title
+        return "Unknown Node"
 
     def _get_image_directory(self):
         """Get image directory path"""
@@ -96,7 +98,8 @@ class Node(QGraphicsItem):
             if Node._unknown_image is None:
                 self._create_unknown_image()
             self.default_image = Node._unknown_image
-            self.recognition_image = Node._unknown_image
+            # 使用列表存储图片
+            self.recognition_images = [Node._unknown_image]
             return
 
         # Try to load default image if path is available
@@ -115,10 +118,10 @@ class Node(QGraphicsItem):
             # No default image path provided
             self._create_fallback_image()
 
-        # Set default image as recognition image initially (could be None)
-        self.recognition_image = self.default_image
+        # 初始化为包含默认图片的列表
+        self.recognition_images = [self.default_image]
 
-        # Try to load specific recognition image if this is a recognition node
+        # Try to load specific recognition images if this is a recognition node
         if self.node_type == self.TYPE_RECOGNITION:
             self._load_recognition_image()
 
@@ -150,36 +153,42 @@ class Node(QGraphicsItem):
         painter.end()
 
     def _load_recognition_image(self):
-        """Load recognition image from task_node"""
+        """Load recognition images from task_node"""
         if not hasattr(self.task_node, 'template'):
             return
 
         template = self.task_node.template
-        image_path = None
+        image_paths = []
 
-        # Handle template as list or string
-        if isinstance(template, list) and len(template) > 0:
-            image_path = template[0]
+        # 收集所有图片路径
+        if isinstance(template, list):
+            image_paths = template
         elif isinstance(template, str):
-            image_path = template
+            image_paths = [template]
 
-        # If no path found, return
-        if not image_path:
+        # If no paths found, return
+        if not image_paths:
             return
 
-        # Get base path and construct full path
+        # Get base path
         base_path = config_manager.config.get("recent_files", {}).get("base_resource_path", "")
         if not base_path:
             return
 
-        full_path = os.path.join(base_path, "image", image_path)
+        # 加载所有图片
+        self.recognition_images = []
+        for image_path in image_paths:
+            full_path = os.path.join(base_path, "image", image_path)
+            try:
+                pixmap = QPixmap(full_path)
+                if not pixmap.isNull():
+                    self.recognition_images.append(pixmap)
+            except:
+                pass
 
-        try:
-            self.recognition_image = QPixmap(full_path)
-            if self.recognition_image.isNull():
-                self.recognition_image = self.default_image
-        except:
-            self.recognition_image = self.default_image
+        # 如果没有成功加载任何图片，使用默认图片
+        if not self.recognition_images:
+            self.recognition_images = [self.default_image]
 
     def _initialize_ports(self):
         """Initialize all ports"""
@@ -302,36 +311,74 @@ class Node(QGraphicsItem):
         return colors
 
     def _paint_recognition_content(self, painter, colors):
-        """Paint recognition node content - show only the image"""
-        # Skip if no image or null image
-        if not self.recognition_image or self.recognition_image.isNull():
-            # Show placeholder text if no image is available
+        """Paint recognition node content - show all images"""
+        # Skip if no images
+        if not self.recognition_images or not any(not img.isNull() for img in self.recognition_images):
+            # Show placeholder text if no images are available
             painter.setPen(colors['property_title'])
             painter.setFont(QFont("Arial", 9))
             painter.drawText(
                 QRectF(10, self.content_start + 10, self.bounds.width() - 20, 30),
                 Qt.AlignCenter,
-                "No Template Image"
+                "No Template Images"
             )
             return
 
-        # Calculate image size and position - make it larger for recognition nodes
-        # Use more space since we don't need to show properties
-        img_size = min(self.bounds.width() - 20, self.bounds.height() - self.content_start - 15)
-        img_rect = QRectF(
-            (self.bounds.width() - img_size) / 2,
-            self.content_start + 5,
-            img_size,
-            img_size
-        )
+        # Filter out null images
+        valid_images = [img for img in self.recognition_images if not img.isNull()]
+        img_count = len(valid_images)
 
-        # Draw border around image
-        painter.setPen(QPen(QColor(180, 180, 180), 1))
-        painter.setBrush(Qt.NoBrush)
-        painter.drawRect(img_rect)
+        if img_count == 0:
+            return
 
-        # Draw image
-        painter.drawPixmap(img_rect.toRect(), self.recognition_image)
+        # Calculate available space
+        available_width = self.bounds.width() - 20
+        available_height = self.bounds.height() - self.content_start - 15
+
+        # Determine grid layout based on number of images
+        if img_count == 1:
+            cols, rows = 1, 1
+        elif img_count == 2:
+            cols, rows = 2, 1
+        elif img_count <= 4:
+            cols, rows = 2, 2
+        elif img_count <= 6:
+            cols, rows = 3, 2
+        elif img_count <= 9:
+            cols, rows = 3, 3
+        else:
+            cols = int(math.ceil(math.sqrt(img_count)))
+            rows = int(math.ceil(img_count / cols))
+
+        # Calculate image size with padding
+        padding = 5
+        img_width = (available_width - (cols - 1) * padding) / cols
+        img_height = (available_height - (rows - 1) * padding) / rows
+        img_size = min(img_width, img_height)
+
+        # Calculate starting position to center the grid
+        total_width = cols * img_size + (cols - 1) * padding
+        total_height = rows * img_size + (rows - 1) * padding
+        start_x = (self.bounds.width() - total_width) / 2
+        start_y = self.content_start + (available_height - total_height) / 2
+
+        # Draw each image
+        for idx, img in enumerate(valid_images):
+            row = idx // cols
+            col = idx % cols
+
+            x = start_x + col * (img_size + padding)
+            y = start_y + row * (img_size + padding)
+
+            img_rect = QRectF(x, y, img_size, img_size)
+
+            # Draw border around image
+            painter.setPen(QPen(QColor(180, 180, 180), 1))
+            painter.setBrush(Qt.NoBrush)
+            painter.drawRect(img_rect)
+
+            # Draw image
+            painter.drawPixmap(img_rect.toRect(), img)
 
     def _paint_unknown_content(self, painter, colors):
         """Paint unknown node content"""
@@ -448,19 +495,42 @@ class Node(QGraphicsItem):
         self.setPos(x, y)
         self._update_connections()
 
+    def _safe_call_method(self, obj, method_names, *args, **kwargs):
+        """安全地调用对象的方法，尝试多个可能的方法名"""
+        if not obj:
+            return None
+
+        # 如果提供了一个方法名称字符串，转换为列表
+        if isinstance(method_names, str):
+            method_names = [method_names]
+
+        # 尝试每个方法名
+        for name in method_names:
+            if hasattr(obj, name):
+                method = getattr(obj, name)
+                if callable(method):
+                    try:
+                        return method(*args, **kwargs)
+                    except Exception:
+                        pass  # 如果失败，尝试下一个方法
+
+        return None  # 如果所有方法都失败了，返回 None
+
     def _update_connections(self):
         """Update all connections to this node"""
         # Update input connection
-        if self.input_port and self.input_port.is_connected():
-            connection = self.input_port.get_connection()
-            if connection:
-                connection.update_path()
+        if self.input_port and hasattr(self.input_port, 'is_connected') and self.input_port.is_connected():
+            for connection in self.input_port.get_connections():
+                if connection:
+                    # 安全地调用更新路径方法
+                    self._safe_call_method(connection, ['update_path', 'updatePath', 'update'])
 
         # Update output connections
         for port in self.output_ports.values():
             for connection in port.get_connections():
                 if connection:
-                    connection.update_path()
+                    # 安全地调用更新路径方法
+                    self._safe_call_method(connection, ['update_path', 'updatePath', 'update'])
 
     def _update_port_positions(self):
         """Update positions of all ports"""
@@ -499,81 +569,164 @@ class Node(QGraphicsItem):
             return {}
         return self.output_ports
 
-    def set_task_node(self, task_node):
-        """Set or update the task node"""
-        self.task_node = task_node
-
-        # Determine new node type
-        old_type = self.node_type
-        self.node_type = self._determine_node_type()
-
-        # Update node title based on task_node
-        self.title = self._get_node_title(self.title)
-
-        # 关键修复：无论节点类型是否改变，都正确清理旧端口
-        # self._remove_existing_ports()
-
-        # 初始化新端口
-        self._initialize_ports()
-
-        # Reload images
-        self._load_images()
-
-        # 保持固定高度
-        if not self.collapsed:
-            self.bounds.setHeight(self.FIXED_NODE_HEIGHT)
-
-        self._update_port_positions()
-        self._update_connections()
-        self.update()
-
     def _remove_existing_ports(self):
         """移除所有现有端口，包括从场景中删除它们"""
+        scene = self.scene()
+
         # 处理输入端口
         if self.input_port:
-            # 断开所有连接
-            if self.input_port.is_connected():
-                connection = self.input_port.get_connection()
-                if connection:
-                    # 从源端口移除连接
-                    source_port = connection.get_source_port()
+            # 获取所有连接
+            connections = []
+            try:
+                if hasattr(self.input_port, 'get_connections'):
+                    connections = list(self.input_port.get_connections())
+                elif hasattr(self.input_port, 'connections'):
+                    connections = list(self.input_port.connections)
+            except Exception:
+                # 忽略任何错误，避免中断流程
+                pass
+
+            # 断开连接
+            for connection in connections:
+                try:
+                    # 尝试多种可能的方法名称获取源端口
+                    source_port = self._safe_call_method(
+                        connection,
+                        ['get_source_port', 'source', 'getSource', 'sourcePort', 'from_port', 'fromPort']
+                    )
+
+                    # 尝试断开连接
                     if source_port:
-                        source_port.remove_connection(connection)
-                    # 从场景中移除连接
-                    scene = self.scene()
+                        self._safe_call_method(
+                            source_port,
+                            ['disconnect', 'remove_connection', 'removeConnection'],
+                            connection
+                        )
+
+                    # 移除连接
                     if scene and connection.scene() == scene:
-                        scene.removeItem(connection)
+                        try:
+                            scene.removeItem(connection)
+                        except Exception:
+                            pass
+                except Exception:
+                    # 忽略错误，继续处理下一个连接
+                    pass
 
             # 从场景中移除端口
-            scene = self.scene()
-            if scene and self.input_port.scene() == scene:
-                scene.removeItem(self.input_port)
+            try:
+                if scene and self.input_port.scene() == scene:
+                    scene.removeItem(self.input_port)
+            except Exception:
+                pass
 
-            # 清空引用
             self.input_port = None
 
         # 处理输出端口
         for port_type, port in list(self.output_ports.items()):
-            # 断开所有连接
-            connections = port.get_connections()
-            for connection in list(connections):
-                # 从目标端口移除连接
-                target_port = connection.get_target_port()
-                if target_port:
-                    target_port.set_connection(None)
+            # 获取所有连接
+            connections = []
+            try:
+                if hasattr(port, 'get_connections'):
+                    connections = list(port.get_connections())
+                elif hasattr(port, 'connections'):
+                    connections = list(port.connections)
+            except Exception:
+                # 忽略任何错误，避免中断流程
+                pass
 
-                # 从场景中移除连接
-                scene = self.scene()
-                if scene and connection.scene() == scene:
-                    scene.removeItem(connection)
+            # 断开连接
+            for connection in connections:
+                try:
+                    # 尝试多种可能的方法名称获取目标端口
+                    target_port = self._safe_call_method(
+                        connection,
+                        ['get_target_port', 'target', 'getTarget', 'targetPort', 'to_port', 'toPort']
+                    )
+
+                    # 尝试断开连接
+                    if target_port:
+                        # 尝试可能的断开连接方法
+                        self._safe_call_method(
+                            target_port,
+                            ['disconnect', 'remove_connection', 'removeConnection', 'set_connection'],
+                            connection if not 'set_connection' in dir(target_port) else None
+                        )
+
+                    # 移除连接
+                    if scene and connection.scene() == scene:
+                        try:
+                            scene.removeItem(connection)
+                        except Exception:
+                            pass
+                except Exception:
+                    # 忽略错误，继续处理下一个连接
+                    pass
 
             # 从场景中移除端口
-            scene = self.scene()
-            if scene and port.scene() == scene:
-                scene.removeItem(port)
+            try:
+                if scene and port.scene() == scene:
+                    scene.removeItem(port)
+            except Exception:
+                pass
 
-        # 清空引用
+        # 清空端口字典
         self.output_ports = {}
+
+    def set_task_node(self, task_node):
+        """Set or update the task node"""
+        self.task_node = task_node
+        # 更新节点状态
+        self.refresh_ui()
+
+    def refresh_ui(self):
+        """根据当前task_node刷新UI"""
+        if not self.task_node:
+            return
+
+        # 保存当前节点的坐标和选择状态
+        current_pos = self.pos()
+        was_selected = self.isSelected()
+
+        # 确定新的节点类型和标题
+        old_type = self.node_type
+        self.node_type = self._determine_node_type()
+        self.title = self._get_node_title(self.title)
+
+        # 如果节点类型改变，需要重新创建端口
+        if old_type != self.node_type:
+            # 先尝试安全地移除现有端口
+            try:
+                self._remove_existing_ports()
+            except Exception as e:
+                print(f"移除端口时出错: {e}")
+                # 如果出错，继续执行，确保能够创建新端口
+
+            # 初始化新端口
+            self._initialize_ports()
+
+        # 重新加载图像
+        self._load_images()
+
+        # 调整高度（保持固定高度或折叠状态）
+        if not self.collapsed:
+            self.bounds.setHeight(self.FIXED_NODE_HEIGHT)
+
+        # 更新端口位置和连接
+        self._update_port_positions()
+
+        # 安全地更新连接
+        try:
+            self._update_connections()
+        except Exception as e:
+            print(f"更新连接时出错: {e}")
+
+        # 恢复位置和选择状态
+        self.setPos(current_pos)
+        self.setSelected(was_selected)
+
+        # 更新视图
+        self.update()
 
     def toggle_collapse(self):
         """Toggle collapsed state"""
@@ -582,7 +735,7 @@ class Node(QGraphicsItem):
         if self.collapsed:
             self.bounds.setHeight(self.header_height)
         else:
-            self.bounds.setHeight(self.FIXED_NODE_HEIGHT)  # 修改：使用固定高度
+            self.bounds.setHeight(self.FIXED_NODE_HEIGHT)  # 使用固定高度
 
         self._update_port_positions()
         self._update_connections()
@@ -622,7 +775,7 @@ class Node(QGraphicsItem):
             return
 
         self.bounds.setWidth(max(100, width))
-        # 修改：忽略传入的高度参数，总是使用固定高度
+        # 忽略传入的高度参数，总是使用固定高度
         self.bounds.setHeight(self.FIXED_NODE_HEIGHT)
 
         self._update_port_positions()

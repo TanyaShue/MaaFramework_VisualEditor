@@ -1,4 +1,4 @@
-from PySide6.QtCore import Signal, QObject, QPointF
+from PySide6.QtCore import Signal, QObject, QPointF,Slot
 from PySide6.QtGui import QColor, Qt, QPen
 
 from src.node_system.node import Node
@@ -878,11 +878,87 @@ class CanvasNodeManager(QObject):
             # 更新节点外观以反映变更
             self._update_node_appearance(matching_node)
 
-            # 如果这个节点是打开的，发射信号以刷新任何打开的编辑器
-            if matching_node in self.open_nodes:
-                self.OpenNodeChanged.emit([matching_node])
-
             return True
         else:
             print(f"警告: 未找到与TaskNode名称匹配的可视化节点: {task_node.name}")
             return False
+
+    @Slot(str, str)
+    def update_node_name(self, old_name, new_name):
+        """
+        更新节点名称，并同步更新所有引用该节点的连接。
+
+        参数:
+            old_name: 节点的原始名称
+            new_name: 节点的新名称
+
+        返回:
+            bool: 操作成功返回True，否则返回False
+        """
+        # 验证新名称不为空
+        if not new_name or new_name.strip() == "":
+            print("错误: 新名称不能为空")
+            return False
+
+        # 检查新名称是否已被其他节点使用
+        for task_node in self.pipeline.nodes:
+            if hasattr(task_node, 'name') and task_node.name == new_name:
+                print(f"错误: 名称 '{new_name}' 已被使用")
+                return False
+
+        # 查找对应的可视化节点和任务节点
+        target_visual_node = None
+        target_task_node = None
+
+        for node in self.nodes:
+            if (hasattr(node, 'task_node') and
+                    node.task_node and
+                    hasattr(node.task_node, 'name') and
+                    node.task_node.name == old_name):
+                target_visual_node = node
+                target_task_node = node.task_node
+                break
+
+        if not target_visual_node or not target_task_node:
+            print(f"错误: 未找到名称为 '{old_name}' 的节点")
+            return False
+
+        # 更新任务节点的名称
+        target_task_node.name = new_name
+
+        # 更新可视化节点的标题
+        if hasattr(target_visual_node, 'set_title'):
+            target_visual_node.set_title(new_name)
+        elif hasattr(target_visual_node, 'title'):
+            target_visual_node.title = new_name
+
+        # 更新所有引用此节点的连接
+        for task_node in self.pipeline.nodes:
+            # 跳过目标节点自身
+            if task_node == target_task_node:
+                continue
+
+            # 更新所有连接类型: next, on_error, interrupt
+            for conn_type in ['next', 'on_error', 'interrupt']:
+                conn_nodes = getattr(task_node, conn_type, None)
+                if not conn_nodes:
+                    continue
+
+                # 处理单个值的情况
+                if not isinstance(conn_nodes, list):
+                    if conn_nodes == old_name:
+                        setattr(task_node, conn_type, new_name)
+                    continue
+
+                # 处理列表的情况，替换所有匹配项
+                for i, conn_name in enumerate(conn_nodes):
+                    if conn_name == old_name:
+                        conn_nodes[i] = new_name
+
+
+        # 触发节点视觉更新
+        target_visual_node.refresh_ui()
+
+        print(f"节点名称已成功更新: '{old_name}' -> '{new_name}'")
+
+        return True
