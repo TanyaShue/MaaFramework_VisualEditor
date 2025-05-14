@@ -25,7 +25,7 @@ class MainWindow(QMainWindow):
         self.controller_view = ControllerView()
         self.resource_library = ResourceLibrary()
         self.property_editor = NodePropertiesEditor()
-        self.node_library = NodeLibrary()
+        # self.node_library = NodeLibrary()
 
         # 设置中央部件
         self.setCentralWidget(self.canvas)
@@ -85,11 +85,11 @@ class MainWindow(QMainWindow):
 
     def _create_docks(self):
         # 创建节点库停靠窗口
-        node_library_dock = QDockWidget("节点库", self)
-        node_library_dock.setWidget(self.node_library)
-        node_library_dock.setAllowedAreas(Qt.LeftDockWidgetArea | Qt.RightDockWidgetArea)
-        node_library_dock.setObjectName("node_library_dock")
-        self.dock_widgets["node_library"] = node_library_dock
+        # node_library_dock = QDockWidget("节点库", self)
+        # node_library_dock.setWidget(self.node_library)
+        # node_library_dock.setAllowedAreas(Qt.LeftDockWidgetArea | Qt.RightDockWidgetArea)
+        # node_library_dock.setObjectName("node_library_dock")
+        # self.dock_widgets["node_library"] = node_library_dock
 
         # 创建属性编辑器停靠窗口 - 修改允许区域
         properties_dock = QDockWidget("节点属性", self)
@@ -112,7 +112,7 @@ class MainWindow(QMainWindow):
         self.dock_widgets["controller"] = controller_dock
 
         # 添加停靠窗口到主窗口 - 修改布局位置
-        self.addDockWidget(Qt.LeftDockWidgetArea, node_library_dock)
+        # self.addDockWidget(Qt.LeftDockWidgetArea, node_library_dock)
         self.addDockWidget(Qt.LeftDockWidgetArea, resource_library_dock)
         self.addDockWidget(Qt.BottomDockWidgetArea, controller_dock)
         self.addDockWidget(Qt.RightDockWidgetArea, properties_dock)  # 将属性编辑器放在右侧

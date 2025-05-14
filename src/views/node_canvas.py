@@ -19,7 +19,7 @@ class NodeCanvas(QWidget):
 
         # 创建场景和视图
         self.scene = QGraphicsScene(self)
-        self.scene.setSceneRect(-10000, -10000, 20000, 20000)  # 大场景区域
+        self.scene.setSceneRect(-20000, -20000, 50000, 50000)  # 大场景区域
 
         self.view = CustomGraphicsView(self.scene)  # 使用自定义视图
         self.view.setRenderHint(self.view.renderHints().Antialiasing)

@@ -29,12 +29,6 @@ class ContextMenus:
         selected_nodes = self.canvas.get_selected_nodes()
         multiple_selection = len(selected_nodes) > 1
 
-        # 基本操作
-        if not multiple_selection:
-            menu.addAction("重命名节点").triggered.connect(
-                lambda: self._rename_node(node)
-            )
-
         # 复制操作
         copy_action = menu.addAction("复制节点")
         copy_action.triggered.connect(
@@ -161,30 +155,6 @@ class ContextMenus:
 
         # 显示菜单
         menu.exec(global_pos)
-
-    def _rename_node(self, node):
-        """重命名节点"""
-        new_id, ok = QInputDialog.getText(
-            self.canvas,
-            "重命名节点",
-            "输入新的节点ID:",
-            text=node.id
-        )
-
-        if ok and new_id:
-            # 检查ID是否已存在
-            existing_ids = [n.id for n in self.canvas.node_manager.nodes if n != node]
-            if new_id in existing_ids:
-                QMessageBox.warning(
-                    self.canvas,
-                    "ID冲突",
-                    f"ID '{new_id}' 已被使用，请选择其他ID。"
-                )
-                return
-
-            old_id = node.id
-            node.id = new_id
-            self.canvas.info_label.setText(f"节点已从 '{old_id}' 重命名为 '{new_id}'")
 
     def _copy_nodes(self, nodes):
         """将节点复制到剪贴板"""

@@ -7,7 +7,7 @@ from PySide6.QtCore import Qt, Signal, QPoint, QRectF, QPointF, QTimer
 from PySide6.QtGui import QPixmap, QPainter, QColor, QPen, QBrush, QFont
 from PySide6.QtWidgets import (QMenu, QGraphicsView, QGraphicsScene,
                                QGraphicsPixmapItem, QGraphicsRectItem, QGraphicsItem,
-                               QApplication)
+                               QApplication, QSizePolicy)
 
 from src.config_manager import config_manager
 

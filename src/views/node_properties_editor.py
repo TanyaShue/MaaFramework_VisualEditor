@@ -1149,22 +1149,41 @@ class NodePropertiesEditor(QWidget):
     def node_property_change(self, prop_name, value):
         if not self.current_node:
             return
-        self.apply_changes_silent()
-
-        print(self.current_node)
 
         if prop_name == "template":
-            current_template = getattr(self.current_node, "template", None)
-            if current_template is None:
-                self.current_node.template = [value]
-            elif isinstance(current_template, list):
-                current_template.append(value)
-            elif isinstance(current_template, str):
-                self.current_node.template = [current_template, value]
-            else:
-                self.current_node.template = [value]
+            # 特殊处理template属性
+            self._update_template(value)
 
-        elif prop_name in ("roi", "target"):
+            # 只更新预览，不应用其他变更
+            self.update_preview_images()
+
+            # 发送节点变更信号
+            self.node_changed.emit(self.current_node)
+        else:
+            # 其他属性使用原来的流程
             setattr(self.current_node, prop_name, value)
+            self.apply_changes_silent()
+            self.update_ui_from_node()
 
-        self.update_ui_from_node()
+    def _update_template(self, new_template):
+        """专门处理模板更新的辅助方法"""
+        current_template = getattr(self.current_node, "template", None)
+
+        if current_template is None:
+            self.current_node.template = [new_template]
+        elif isinstance(current_template, list):
+            if new_template not in current_template:  # 避免重复添加
+                current_template.append(new_template)
+        elif isinstance(current_template, str):
+            if current_template != new_template:  # 避免重复添加
+                self.current_node.template = [current_template, new_template]
+        else:
+            self.current_node.template = [new_template]
+
+        # 如果你有UI控件专门显示template值的，也应该在这里更新
+        if "template" in self.property_widgets.get(self.current_node.recognition, {}):
+            template_widget = self.property_widgets[self.current_node.recognition]["template"]
+            if isinstance(self.current_node.template, list):
+                template_widget.setText(json.dumps(self.current_node.template))
+            else:
+                template_widget.setText(str(self.current_node.template))

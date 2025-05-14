@@ -4,7 +4,7 @@ from PySide6.QtCore import Qt, Signal, QThread
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                                QFormLayout, QLineEdit, QPushButton, QComboBox,
                                QSplitter, QStackedWidget, QGroupBox,
-                               QMenu)
+                               QMenu, QSizePolicy, QScrollArea)
 from maa.toolkit import Toolkit
 from qasync import asyncSlot
 
@@ -82,7 +82,19 @@ class ControllerView(QWidget):
     def setup_left_panel(self):
         """设置左侧控制面板"""
         self.left_widget = QWidget()
-        self.left_layout = QVBoxLayout(self.left_widget)
+        outer_layout = QVBoxLayout(self.left_widget)
+        outer_layout.setContentsMargins(0, 0, 0, 0)
+        outer_layout.setSpacing(0)
+
+        # 创建一个滚动区域
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)  # 允许内容小部件调整大小
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+
+        # 创建内容小部件
+        content_widget = QWidget()
+        self.left_layout = QVBoxLayout(content_widget)
         self.left_layout.setContentsMargins(10, 10, 10, 10)
         self.left_layout.setSpacing(15)
 
@@ -175,11 +187,16 @@ class ControllerView(QWidget):
         self.left_layout.addWidget(btn_disconnect)
         self.left_layout.addStretch()
 
+        # 设置内容小部件为滚动区域的小部件
+        scroll_area.setWidget(content_widget)
+
+        # 将滚动区域添加到左侧面板
+        outer_layout.addWidget(scroll_area)
     def setup_right_panel(self):
         """设置右侧视图面板"""
         self.right_widget = QWidget()
         right_layout = QVBoxLayout(self.right_widget)
-        right_layout.setContentsMargins(10, 10, 10, 10)
+        right_layout.setContentsMargins(0, 0, 0, 0)
         right_layout.setSpacing(10)
 
         # 工具栏布局

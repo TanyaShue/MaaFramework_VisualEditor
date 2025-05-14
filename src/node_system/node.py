@@ -789,3 +789,8 @@ class Node(QGraphicsItem):
     def get_scene_center_pos(self):
         """Get center position in scene coordinates"""
         return self.mapToScene(self.get_center_pos())
+
+    def set_title(self, new_title):
+        """设置节点标题并触发重绘"""
+        self.title = new_title
+        self.update()  # 触发重绘
