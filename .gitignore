@@ -1,2 +1,5 @@
 /resources/
 /resources/MaaYYs/
+config/
+debug/
+.idea
