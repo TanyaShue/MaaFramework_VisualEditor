@@ -3,7 +3,7 @@ import os
 from typing import Dict, Any, Optional, List, Tuple
 
 from PySide6.QtCore import Signal, QTimer, Slot, QRectF
-from PySide6.QtGui import QTextCursor, QFont
+from PySide6.QtGui import QTextCursor, QFont, Qt
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QLabel, QFormLayout,
                                QLineEdit, QSpinBox, QPushButton, QCheckBox,
                                QComboBox, QTextEdit, QDoubleSpinBox, QHBoxLayout,
@@ -28,9 +28,10 @@ class PropertyConfig:
 
 class NodePropertiesEditor(QWidget):
     """节点属性编辑器"""
+    OpenNodeChanged = Signal(str,object)
 
-    node_changed = Signal(object)
-    node_name_change=Signal(str,str)
+    # node_changed = Signal(object)
+    node_name_change = Signal(str, str)
     # 样式常量
     STYLES = {
         "button": """
@@ -124,6 +125,7 @@ class NodePropertiesEditor(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
 
+        self.open_node = None
         self.recognition_types = [
             "DirectHit", "TemplateMatch", "FeatureMatch", "ColorMatch",
             "OCR", "NeuralNetworkClassify", "NeuralNetworkDetect", "Custom"
@@ -145,17 +147,32 @@ class NodePropertiesEditor(QWidget):
         self.init_ui()
         self.setup_properties()
         self.connect_signals()
-        self.set_node()
+        self.set_node(None)
 
     def init_ui(self):
         """初始化UI"""
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(10, 10, 10, 10)
 
+        # 创建提示标签（当没有节点时显示）
+        self.no_node_label = QLabel("请打开节点或节点不支持")
+        self.no_node_label.setAlignment(Qt.AlignCenter)
+        main_layout.addWidget(self.no_node_label)
+
+        # 创建选项卡容器
+        self.tab_container = QWidget()
+        tab_layout = QVBoxLayout(self.tab_container)
+        tab_layout.setContentsMargins(0, 0, 0, 0)
+
         # 创建选项卡
         self.tab_widget = QTabWidget()
         self.setup_tabs()
-        main_layout.addWidget(self.tab_widget)
+        tab_layout.addWidget(self.tab_widget)
+
+        main_layout.addWidget(self.tab_container)
+
+        # 初始状态隐藏选项卡容器
+        self.tab_container.hide()
 
     def setup_tabs(self):
         """设置选项卡"""
@@ -711,14 +728,15 @@ class NodePropertiesEditor(QWidget):
 
     def set_node(self, node=None):
         """设置要编辑的节点"""
-        # Create a new node or make a clean copy of the provided node
         if node is None:
-            self.current_node = TaskNode("New Node")
-        else:
-            # Use JSON serialization to create a clean copy with only the properties
-            # that should be in the node, avoiding any retained state
-            node_json = node.to_json()
-            self.current_node = TaskNode.from_json(node_json)
+            self.current_node = None
+            self.show_no_node_view()
+            return
+        self.open_node=node
+        self.current_node = node.task_node
+
+        # Show the node editing UI
+        self.show_node_view()
 
         # Reset all widgets to default values first
         self.reset_all_widgets()
@@ -726,30 +744,20 @@ class NodePropertiesEditor(QWidget):
         # Then update the UI from the clean node
         self.update_ui_from_node()
 
-    def reset_all_widgets(self):
-        """重置所有小部件到默认状态"""
-        self.is_updating_ui = True
-        try:
-            # Reset basic widgets
-            for prop_name, widget in self.widgets.items():
-                default_value = self.PROPERTY_DEFAULTS.get(prop_name)
-                self.set_widget_value(widget, default_value)
+    def show_no_node_view(self):
+        """显示无节点视图"""
+        self.tab_container.hide()
+        self.no_node_label.show()
 
-            # Reset all algorithm-specific widgets
-            for algo_type, widgets in self.property_widgets.items():
-                for prop_name, widget in widgets.items():
-                    # Get algorithm-specific default if available
-                    if algo_type in self.ALGORITHM_DEFAULTS and prop_name in self.ALGORITHM_DEFAULTS[algo_type]:
-                        default_value = self.ALGORITHM_DEFAULTS[algo_type][prop_name]
-                    else:
-                        default_value = self.PROPERTY_DEFAULTS.get(prop_name)
-                    self.set_widget_value(widget, default_value)
-        finally:
-            self.is_updating_ui = False
+    def show_node_view(self):
+        """显示节点编辑视图"""
+        self.no_node_label.hide()
+        self.tab_container.show()
 
     def update_ui_from_node(self):
         """从节点更新UI"""
         if not self.current_node:
+            self.show_no_node_view()
             return
 
         self.is_updating_ui = True
@@ -770,8 +778,27 @@ class NodePropertiesEditor(QWidget):
             self.update_preview_images()
 
             self.update_json_preview()
-            # if self.visual_node:
-            #     self.visual_node.set_task_node(self.current_node)
+        finally:
+            self.is_updating_ui = False
+
+    def reset_all_widgets(self):
+        """重置所有小部件到默认状态"""
+        self.is_updating_ui = True
+        try:
+            # Reset basic widgets
+            for prop_name, widget in self.widgets.items():
+                default_value = self.PROPERTY_DEFAULTS.get(prop_name)
+                self.set_widget_value(widget, default_value)
+
+            # Reset all algorithm-specific widgets
+            for algo_type, widgets in self.property_widgets.items():
+                for prop_name, widget in widgets.items():
+                    # Get algorithm-specific default if available
+                    if algo_type in self.ALGORITHM_DEFAULTS and prop_name in self.ALGORITHM_DEFAULTS[algo_type]:
+                        default_value = self.ALGORITHM_DEFAULTS[algo_type][prop_name]
+                    else:
+                        default_value = self.PROPERTY_DEFAULTS.get(prop_name)
+                    self.set_widget_value(widget, default_value)
         finally:
             self.is_updating_ui = False
 
@@ -966,7 +993,11 @@ class NodePropertiesEditor(QWidget):
         # 更新预览
         self.update_preview_images()
 
-        self.node_changed.emit(self.current_node)
+        self.open_node.refresh_ui()
+
+        # self.node_changed.emit(self.current_node)
+        self.OpenNodeChanged.emit("property_editor",self.open_node)
+
 
     def apply_changes_silent(self):
         """静默应用更改"""
@@ -1091,7 +1122,9 @@ class NodePropertiesEditor(QWidget):
 
             self.update_ui_from_node()
             self.json_error_banner.hide()
-            self.node_changed.emit(self.current_node)
+            # self.node_changed.emit(self.current_node)
+            self.OpenNodeChanged.emit("property_editor", self.open_node)
+
 
         except Exception as e:
             self.json_error_banner.setText(f"应用失败: {str(e)}")

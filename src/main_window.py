@@ -284,14 +284,12 @@ class MainWindow(QMainWindow):
             dock.visibilityChanged.connect(lambda visible, d=dock: self.update_dock_status(d, visible))
 
         # 连接节点属性编辑器的信号
-        self.canvas.node_manager.OpenNodeChanged.connect(self.update_property_editor)
-        self.canvas.node_manager.OpenNodeChanged.connect(self.controller_view.update_selected_node)
-        self.canvas.open_node.connect(self.show_properties_dock)
+        self.canvas.node_manager.OpenNodeChanged.connect(self.update_open_node)
+        self.canvas.node_manager.OpenNodeChanged.connect(self.show_properties_dock)
         self.resource_library.resource_opened.connect(self.on_resource_opened)
-        self.property_editor.node_changed.connect(self.canvas.node_manager.update_from_node)
+        self.property_editor.OpenNodeChanged.connect(self.update_open_node)
         self.property_editor.node_name_change.connect(self.canvas.node_manager.update_node_name)
-        self.controller_view.device_view.NodeChangeSignal.connect(self.property_editor.node_property_change)
-
+        self.controller_view.OpenNodeChanged.connect(self.update_open_node)
     @Slot()
     def show_properties_dock(self):
         dock = self.dock_widgets.get("properties")
@@ -300,23 +298,21 @@ class MainWindow(QMainWindow):
             dock.raise_()
             self.update_dock_status(dock, True)
 
-    @Slot()
-    def update_property_editor(self):
+    @Slot(str,object)
+    def update_open_node(self,come_from,open_node):
         """当节点选择改变时更新属性编辑器"""
-        # selected_nodes = self.canvas.get_selected_nodes()
-        open_nodes=self.canvas.get_open_nodes()
+        if not come_from:
+            return
 
-        if len(open_nodes) == 1:
-            # 单个节点选择时，显示其属性
-            node = open_nodes[0]
-            # 假设属性编辑器有一个 set_node 方法
-            if hasattr(self.property_editor, 'set_node'):
-                self.property_editor.set_node(node.task_node)
-                self.property_editor.visual_node=node
-        else:
-            # 多个或零个节点选择时，清空属性编辑器
-            if hasattr(self.property_editor, 'clear'):
-                self.property_editor.clear()
+        if come_from=="canvas":
+            self.property_editor.set_node(open_node)
+            self.controller_view.set_node(open_node)
+        elif come_from=="property_editor":
+            self.controller_view.set_node(open_node)
+        elif come_from=="controller_view":
+            # self.property_editor.set_node(open_node)
+            self.property_editor.update_ui_from_node()
+
 
     @Slot()
     def on_properties_changed(self):

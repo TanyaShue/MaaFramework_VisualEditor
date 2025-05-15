@@ -1,14 +1,12 @@
-import hashlib
 import os
 import math
 
 from PySide6.QtCore import QRectF, Qt, QPointF
-from PySide6.QtGui import QPainter, QFont, QColor, QPen, QBrush, QPainterPath, QPixmap
+from PySide6.QtGui import QPainter, QFont, QColor, QPen, QPainterPath, QPixmap
 from PySide6.QtWidgets import QGraphicsItem
 
 from src.config_manager import config_manager
-from src.node_system.port import InputPort, OutputPort
-from src.pipeline import TaskNode
+from src.views.node_system.port import InputPort, OutputPort
 
 
 class Node(QGraphicsItem):

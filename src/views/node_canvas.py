@@ -5,13 +5,13 @@ from PySide6.QtWidgets import (QGraphicsView, QGraphicsScene, QLabel, QVBoxLayou
 
 from src.canvas_commands import CommandManager, MoveNodesCommand, ConnectNodesCommand
 from src.canvas_context_menus import ContextMenus
-from src.node_system.canvas_node_manager import CanvasNodeManager
-from src.node_system.node import Node
-from src.node_system.port import OutputPort, InputPort
+from src.views.node_system.canvas_node_manager import CanvasNodeManager
+from src.views.node_system.connection_manager import ConnectionManager
+from src.views.node_system.node import Node
+from src.views.node_system.port import OutputPort, InputPort
 
 
 class NodeCanvas(QWidget):
-    open_node = Signal()
     def __init__(self, parent=None):
         super().__init__(parent)
         self.layout = QVBoxLayout(self)
@@ -38,7 +38,6 @@ class NodeCanvas(QWidget):
         self.zoom_factor = 1.15
 
         # 使用统一的 ConnectionManager 管理连接状态
-        from src.node_system.connection_manager import ConnectionManager
         self.connection_manager = ConnectionManager(self.scene, self)
 
         # 初始化命令管理器
@@ -143,7 +142,6 @@ class NodeCanvas(QWidget):
                 self.node_manager.close_all_nodes()
                 # 打开当前节点（设置蓝色边框）
                 self.node_manager.set_node_open(item, True)
-                self.open_node.emit()
                 self.info_label.setText(f"已打开节点: {item.title}")
                 event.accept()
                 return
@@ -182,9 +180,6 @@ class NodeCanvas(QWidget):
     def get_selected_nodes(self):
         """获取选中的节点，委托给节点管理器"""
         return self.node_manager.get_selected_nodes()
-    def get_open_nodes(self):
-        """获取选中的节点，委托给节点管理器"""
-        return self.node_manager.get_open_nodes()
 
     def center_on_content(self):
         """将视图居中显示所有内容"""

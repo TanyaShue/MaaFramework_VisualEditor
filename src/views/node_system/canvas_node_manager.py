@@ -1,7 +1,7 @@
 from PySide6.QtCore import Signal, QObject, QPointF,Slot
 from PySide6.QtGui import QColor, Qt, QPen
 
-from src.node_system.node import Node
+from src.views.node_system.node import Node
 from src.pipeline import TaskNode, open_pipeline
 
 
@@ -9,7 +9,7 @@ class CanvasNodeManager(QObject):
     """
     节点操作的统一管理器。与Pipeline协作管理节点的UI表示和逻辑关系。
     """
-    OpenNodeChanged = Signal(list)
+    OpenNodeChanged = Signal(str,object)
 
     def __init__(self, canvas, scene):
         super().__init__()
@@ -22,7 +22,7 @@ class CanvasNodeManager(QObject):
         # UI节点集合
         self.nodes = []  # 场景中的所有节点
         self.selected_nodes = []  # 当前选中的节点
-        self.open_nodes = []  # 当前打开的节点
+        self.open_node = None  # 当前打开的节点
 
         # 节点显示状态的颜色
         self.SELECTED_COLOR = QColor(255, 255, 0)
@@ -168,12 +168,9 @@ class CanvasNodeManager(QObject):
             self.nodes.remove(node)
         if node in self.selected_nodes:
             self.selected_nodes.remove(node)
-        if node in self.open_nodes:
-            self.open_nodes.remove(node)
+        if node ==self.open_node:
+            self.open_node=None
 
-        # 从Pipeline中移除节点 - 添加额外的检查
-        if hasattr(node, 'id') and node.id in self.pipeline.nodes:
-            del self.pipeline.nodes[node.id]
         # 如果node有task_node属性，尝试通过task_node.name删除
         elif hasattr(node, 'task_node') and node.task_node:
             task_node = node.task_node
@@ -209,26 +206,25 @@ class CanvasNodeManager(QObject):
             open_state: True打开，False关闭
         """
         if open_state:
-            if node not in self.open_nodes:
-                self.open_nodes.append(node)
-                self.OpenNodeChanged.emit([node])
+            if node:
+                self.open_node=node
+                self.OpenNodeChanged.emit("canvas",node)
         else:
-            if node in self.open_nodes:
-                self.open_nodes.remove(node)
+            if self.open_node:
+                self.open_node=None
 
         self._update_node_appearance(node)
 
     def toggle_node_open(self, node):
         """切换节点的打开状态"""
-        if node in self.open_nodes:
+        if node in self.open_node:
             self.set_node_open(node, False)
         else:
             self.set_node_open(node, True)
 
     def close_all_nodes(self):
         """关闭所有已打开的节点"""
-        for node in self.open_nodes[:]:
-            self.set_node_open(node, False)
+        self.open_node = None
 
     def _update_node_appearance(self, node):
         """
@@ -241,7 +237,7 @@ class CanvasNodeManager(QObject):
             node.border_color = self.DEFAULT_COLOR
             self._enhance_node(node)
 
-        if node in self.open_nodes:
+        if node ==self.open_node:
             node.border_color = self.OPEN_COLOR  # 绿色
         elif node in self.selected_nodes:
             node.border_color = self.SELECTED_COLOR  # 黄色
@@ -293,7 +289,8 @@ class CanvasNodeManager(QObject):
             self.remove_node(node)
 
         self.selected_nodes.clear()
-        self.open_nodes.clear()
+        self.open_node=None
+        self.OpenNodeChanged.emit("canvas",self.open_node)
 
     def get_selected_nodes(self):
         """获取所有选中的节点"""
@@ -301,7 +298,7 @@ class CanvasNodeManager(QObject):
 
     def get_open_nodes(self):
         """获取所有打开的节点"""
-        return self.open_nodes.copy()
+        return self.open_node
 
     def update_from_scene_selection(self):
         """
@@ -489,69 +486,6 @@ class CanvasNodeManager(QObject):
             return connection
 
         return None
-
-    def _add_next_node(self, task_node, node_name):
-        """
-        添加下一个节点到任务节点
-
-        参数:
-            task_node: 任务节点
-            node_name: 要添加的节点名称
-        """
-        if not hasattr(task_node, 'next') or task_node.next is None:
-            task_node.next = []
-
-        if isinstance(task_node.next, list):
-            if node_name not in task_node.next:
-                task_node.next.append(node_name)
-        else:
-            # 如果next不是列表，先转换为包含当前值的列表
-            current = task_node.next
-            task_node.next = [current] if current else []
-            if node_name not in task_node.next:
-                task_node.next.append(node_name)
-
-    def _add_error_node(self, task_node, node_name):
-        """
-        添加错误处理节点到任务节点
-
-        参数:
-            task_node: 任务节点
-            node_name: 要添加的节点名称
-        """
-        if not hasattr(task_node, 'on_error') or task_node.on_error is None:
-            task_node.on_error = []
-
-        if isinstance(task_node.on_error, list):
-            if node_name not in task_node.on_error:
-                task_node.on_error.append(node_name)
-        else:
-            # 如果on_error不是列表，先转换为包含当前值的列表
-            current = task_node.on_error
-            task_node.on_error = [current] if current else []
-            if node_name not in task_node.on_error:
-                task_node.on_error.append(node_name)
-
-    def _add_interrupt_node(self, task_node, node_name):
-        """
-        添加中断处理节点到任务节点
-
-        参数:
-            task_node: 任务节点
-            node_name: 要添加的节点名称
-        """
-        if not hasattr(task_node, 'interrupt') or task_node.interrupt is None:
-            task_node.interrupt = []
-
-        if isinstance(task_node.interrupt, list):
-            if node_name not in task_node.interrupt:
-                task_node.interrupt.append(node_name)
-        else:
-            # 如果interrupt不是列表，先转换为包含当前值的列表
-            current = task_node.interrupt
-            task_node.interrupt = [current] if current else []
-            if node_name not in task_node.interrupt:
-                task_node.interrupt.append(node_name)
 
     def _layout_nodes(self, pipeline, node_mapping):
         """

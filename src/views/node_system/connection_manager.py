@@ -2,7 +2,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QPen, QColor
 from PySide6.QtWidgets import QGraphicsPathItem
 
-from src.node_system.connection import Connection, build_connection_path
+from src.views.node_system.connection import Connection, build_connection_path
 
 
 class ConnectionManager:
@@ -410,6 +410,8 @@ class ConnectionManager:
                 append_task_name(source_task_node, target_task_node, "on_error")
             elif source_port.port_type == "interrupt":
                 append_task_name(source_task_node, target_task_node, "interrupt")
+
+        self.canvas.node_manager.OpenNodeChanged.emit("canvas",self.canvas.node_manager.open_node)
         # 更新连接的路径
         connection.update_path()
         self.cancel_connection()  # 添加这行取消临时连接状态

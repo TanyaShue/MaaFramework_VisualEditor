@@ -37,15 +37,15 @@ class DeviceSearchThread(QThread):
 
 class ControllerView(QWidget):
     # 添加新信号
-
+    OpenNodeChanged=Signal(str,object)
     def __init__(self, parent=None):
         super().__init__(parent)
 
         # 初始化状态变量
-        self.selected_node = None
+        self.open_node = None
         self.file_name = None
         self.device_view = None
-        self.selected_node_name = None
+        self.current_node_name = None
         self.found_devices = []
         self.select_device = None
         self.selection_mode = False
@@ -192,6 +192,7 @@ class ControllerView(QWidget):
 
         # 将滚动区域添加到左侧面板
         outer_layout.addWidget(scroll_area)
+
     def setup_right_panel(self):
         """设置右侧视图面板"""
         self.right_widget = QWidget()
@@ -235,8 +236,8 @@ class ControllerView(QWidget):
         toolbar_layout.addStretch()
 
         # 添加选中节点标签
-        self.selected_node_label = QLabel("选中节点: 未选择")
-        toolbar_layout.addWidget(self.selected_node_label)
+        self.current_node_label = QLabel("选中节点: 未选择")
+        toolbar_layout.addWidget(self.current_node_label)
 
         # 打开文件
         self.task_file_label = QLabel("打开文件: 未选择")
@@ -427,17 +428,17 @@ class ControllerView(QWidget):
         # 可以在这里处理选择区域清除事件
         pass
 
-    def update_selected_node(self, node):
+    def set_node(self, node):
         """更新已选中节点的标签"""
         try:
-            self.selected_node_name = node[0].task_node.name
-            self.selected_node=node[0].task_node
-            label_text = f"选中节点:{self.selected_node_name}"
+            self.current_node_name = node.task_node.name
+            self.open_node=node
+            label_text = f"选中节点:{self.current_node_name}"
         except (IndexError, AttributeError, TypeError):
-            self.selected_node_name = None
+            self.current_node_name = None
             label_text = "选中节点: 未选择"
 
-        self.selected_node_label.setText(label_text)
+        self.current_node_label.setText(label_text)
 
     def update_task_file(self, file_path):
         """更新打开文件的标签，只显示文件名"""

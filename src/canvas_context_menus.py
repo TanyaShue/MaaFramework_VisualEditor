@@ -1,12 +1,12 @@
 import os
 
 from PySide6.QtCore import QPointF
-from PySide6.QtWidgets import QMenu, QInputDialog, QMessageBox
+from PySide6.QtWidgets import QMenu
 
 from src.canvas_commands import AddNodeCommand, DeleteNodesCommand, DisconnectNodesCommand
 from src.config_manager import config_manager
-from src.node_system.node import Node
 from src.pipeline import TaskNode
+from src.views.node_system.node import Node
 
 
 class ContextMenus:
@@ -179,7 +179,6 @@ class ContextMenus:
         if not hasattr(self.canvas, 'clipboard') or not self.canvas.clipboard:
             return
 
-        from src.node_system.node import Node
 
         # 清除当前选择
         self.canvas.scene.clearSelection()

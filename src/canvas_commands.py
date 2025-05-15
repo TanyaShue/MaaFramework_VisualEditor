@@ -1,5 +1,7 @@
 from abc import ABC, abstractmethod
 
+from src.views.node_system.node import Node
+
 
 class Command(ABC):
     """命令抽象基类"""
@@ -108,7 +110,6 @@ class DeleteNodesCommand(Command):
         """撤销删除命令 - 重新创建节点及其连接"""
         # 这需要根据具体的节点创建和连接机制来实现
         # 以下是一个示例框架，具体实现需要根据 Node 类和 Connection 类的设计
-        from src.node_system.node import Node
 
         recreated_nodes = {}
 

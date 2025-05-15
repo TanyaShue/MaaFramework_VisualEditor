@@ -142,7 +142,7 @@ class DeviceImageView(QGraphicsView):
         self.selection_start = None
         self.min_zoom = 0.1
         self.max_zoom = 4.0
-        self.zoom_sensitivity = 0.3  # 调整缩放灵敏度为0.15
+        self.zoom_sensitivity = 0.3  # 调整缩放灵敏度
         self._panning = False
         self._last_pan_pos = None
 
@@ -621,9 +621,26 @@ class DeviceImageView(QGraphicsView):
         # 保存并获取相对路径
         relative_path = self._save_selection()
 
-        # 发射信号（假设信号定义为带参数：str）
-        if relative_path:
-            self.NodeChangeSignal.emit("template", relative_path)
+        if not relative_path:
+            return
+
+        if self.control.open_node:
+            node = self.control.open_node
+            template = node.task_node.template
+
+            if template is None:
+                node.task_node.template = [relative_path]
+            elif isinstance(template, list):
+                if relative_path not in template:
+                    template.append(relative_path)
+            elif isinstance(template, str):
+                if template != relative_path:
+                    node.task_node.template = [template, relative_path]
+
+            node.refresh_ui()
+            self.control.OpenNodeChanged.emit("controller_view",self.control.open_node)
+
+            # self.NodeChangeSignal.emit("template", relative_path)
 
     def _save_roi_to_node(self):
         """保存选区ROI到节点"""
@@ -634,24 +651,29 @@ class DeviceImageView(QGraphicsView):
         roi_data = self.get_roi_data()
         if not roi_data:
             return
-
+        if self.control.open_node:
+            node = self.control.open_node
+            node.task_node.roi=roi_data
+            node.refresh_ui()
         # 发送信号
-        self.NodeChangeSignal.emit("roi", roi_data)
+        self.control.OpenNodeChanged.emit("controller_view", self.control.open_node)
 
     def _save_target_to_node(self):
         """保存选区为目标到节点"""
         if not self.is_selection_valid() or not self.original_pixmap:
             return
 
-        try:
-            target_data = self.get_roi_data()
-            if not target_data:
-                return
-            # 发送信号
-            self.NodeChangeSignal.emit("target", target_data)
+        target_data = self.get_roi_data()
+        if not target_data:
+            return
+        # 发送信号
+        if self.control.open_node:
+            node = self.control.open_node
+            node.task_node.target = target_data
+            node.refresh_ui()
+        # 发送信号
+        self.control.OpenNodeChanged.emit("controller_view", self.control.open_node)
 
-        except (RuntimeError, AttributeError) as e:
-            print(f"保存目标时发生错误: {e}")
 
     def _save_selection(self):
         """Save selection to file and return relative path"""
@@ -678,7 +700,7 @@ class DeviceImageView(QGraphicsView):
 
                 if file_name_without_ext:
                     save_dir = os.path.join(base_path, "image", file_name_without_ext)
-                    base_filename = self.control.selected_node_name or file_name_without_ext
+                    base_filename = self.control.current_node_name or file_name_without_ext
                 else:
                     save_dir = os.path.join(base_path, "image")
                     base_filename = f"selection_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
