@@ -3,7 +3,7 @@ from typing import Dict, Tuple
 from PIL.Image import Image
 from PySide6.QtWidgets import (
     QWidget, QLabel, QVBoxLayout, QScrollArea, QFrame,
-    QSplitter, QHBoxLayout, QSizePolicy
+    QSplitter, QHBoxLayout, QSizePolicy, QTableWidget, QTableWidgetItem, QHeaderView
 )
 from PySide6.QtCore import Qt, Signal, Slot, QTimer, QSize
 from PySide6.QtGui import QPixmap, QImage, QResizeEvent
@@ -41,32 +41,61 @@ class ImageContainer(QFrame):
         # 原始图片和缩放图片
         self._pixmap = None
 
+        # 优化处理大小变化
+        self._resize_timer = QTimer()
+        self._resize_timer.setSingleShot(True)
+        self._resize_timer.timeout.connect(self._delayed_resize)
+
     def setPixmap(self, pixmap):
         """设置图片"""
         self._pixmap = pixmap
+        self._update_image_size()
+
+    def _update_image_size(self):
+        """更新图片尺寸"""
         if self._pixmap:
             # 计算合适的图片尺寸，保持宽高比
             pixmap_ratio = self._pixmap.height() / max(1, self._pixmap.width())
-            target_height = int(self.width() * pixmap_ratio)
+            # 留出一些边距
+            container_width = self.width() - 12
+            target_height = int(container_width * pixmap_ratio)
 
-            # 设置固定高度，确保图片不会超出容器
-            self.image_label.setFixedSize(self.width() - 10, target_height)
+            # 限制最大高度，避免图片过大
+            max_height = 800  # 设置一个合理的最大高度值
+            if target_height > max_height:
+                target_height = max_height
+                container_width = int(max_height / pixmap_ratio)
+
+            # 设置图片标签大小
+            self.image_label.setFixedSize(container_width, target_height)
 
             # 设置图片
             self.image_label.setPixmap(self._pixmap.scaled(
-                self.image_label.width(),
-                self.image_label.height(),
+                container_width,
+                target_height,
                 Qt.KeepAspectRatio,
                 Qt.SmoothTransformation
             ))
 
-    def resizeEvent(self, event: QResizeEvent):
+    def _delayed_resize(self):
+        """延迟处理大小变化，避免频繁更新"""
+        self._update_image_size()
+
+    def resizeEvent(self, event):
         """处理容器大小变化"""
         super().resizeEvent(event)
-        if self._pixmap:
-            # 重新调整图片大小
-            self.setPixmap(self._pixmap)
+        # 使用计时器延迟更新，避免频繁调用
+        self._resize_timer.start(100)
 
+    def sizeHint(self):
+        """提供合适的大小提示"""
+        if self._pixmap:
+            # 根据图片比例提供合适的大小提示
+            pixmap_ratio = self._pixmap.height() / max(1, self._pixmap.width())
+            hint_width = self.width()
+            hint_height = int(hint_width * pixmap_ratio) + 20  # 添加边距
+            return QSize(hint_width, hint_height)
+        return super().sizeHint()
 
 class RecoDetailView(QWidget):
     """识别详情视图，展示图片和识别数据"""
@@ -79,12 +108,14 @@ class RecoDetailView(QWidget):
 
         # 主布局（减少边距）
         self.layout = QVBoxLayout(self)
-        self.layout.setContentsMargins(5, 5, 5, 5)
-        self.layout.setSpacing(5)
+        self.layout.setContentsMargins(3, 3, 3, 3)  # 减少边距
+        self.layout.setSpacing(3)  # 减少间距
 
-        # 标题标签（优化大小）
+        # 修改部分: 标题标签设置为固定高度并优化样式
         self.title_label = QLabel("Recognition Details")
-        self.title_label.setStyleSheet("font-size: 14pt; font-weight: bold;")
+        self.title_label.setStyleSheet("font-size: 12pt; font-weight: bold;")
+        self.title_label.setFixedHeight(30)  # 设置固定高度
+        self.title_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)  # 垂直居中，左对齐
         self.layout.addWidget(self.title_label)
 
         # 加载指示器（简化）
@@ -145,6 +176,9 @@ class RecoDetailView(QWidget):
         # 连接信号到槽
         self.fetch_detail_signal.connect(self.handle_detail_fetch)
 
+        # 连接分隔器的移动信号
+        self.splitter.splitterMoved.connect(self._handle_splitter_moved)
+
         # 缓存图片
         self._image_cache = {}
 
@@ -152,6 +186,12 @@ class RecoDetailView(QWidget):
         self._resize_timer = QTimer()
         self._resize_timer.setSingleShot(True)
         self._resize_timer.timeout.connect(self._update_container_widths)
+
+    def _handle_splitter_moved(self, pos, index):
+        """处理分隔器移动事件"""
+        # 更新容器宽度和图片大小
+        self._update_container_widths()
+
 
     def resizeEvent(self, event):
         """处理窗口大小变化"""
@@ -161,15 +201,20 @@ class RecoDetailView(QWidget):
 
     def _update_container_widths(self):
         """更新所有图片容器的宽度"""
-        # 计算合适的容器宽度
+        # 计算合适的容器宽度 - 直接使用滚动区域视口宽度
         scroll_width = self.image_scroll.viewport().width()
-        container_width = scroll_width - 20
+        container_width = scroll_width - 20  # 减去一些边距
 
         # 更新所有图片容器
         for i in range(self.image_layout.count()):
             item = self.image_layout.itemAt(i)
             if item and item.widget() and isinstance(item.widget(), ImageContainer):
-                item.widget().setFixedWidth(container_width)
+                container = item.widget()
+                container.setFixedWidth(container_width)
+
+                # 如果容器有图片，强制重新计算图片大小
+                if container._pixmap:
+                    container.setPixmap(container._pixmap)
 
     def clear(self):
         """清除所有显示的数据"""
@@ -262,7 +307,10 @@ class RecoDetailView(QWidget):
             error_label.setStyleSheet("font-size: 14pt; color: #ff5555; padding: 20px;")
             self.image_layout.addWidget(error_label)
             return
+        print(details.raw_detail)
 
+        # 处理 raw_detail 数据
+        self._update_detail_table(details.raw_detail)
         # 显示图片
         if hasattr(details, 'draw_images') and details.draw_images and len(details.draw_images) > 0:
             # 使用QTimer延迟加载每张图片，减轻UI线程负担
@@ -273,6 +321,173 @@ class RecoDetailView(QWidget):
             self.no_images_label.setAlignment(Qt.AlignCenter)
             self.no_images_label.setStyleSheet("font-size: 14pt; color: #888888; padding: 20px;")
             self.image_layout.addWidget(self.no_images_label)
+
+    def _update_detail_table(self, raw_detail):
+        """更新详细数据表格"""
+
+        # 检查是否有有效数据
+        if not raw_detail or 'all' not in raw_detail or not raw_detail['all']:
+            # 如果没有数据，创建简单表格
+            if not hasattr(self, 'detail_table') or not self.detail_table:
+                self.detail_table = QTableWidget()
+                self.detail_table.setStyleSheet("""
+                    QTableWidget {
+                        border: 1px solid #dddddd;
+                        gridline-color: #dddddd;
+                        background-color: white;
+                        alternate-background-color: #f9f9f9;
+                    }
+                    QHeaderView::section {
+                        background-color: #f0f0f0;
+                        padding: 4px;
+                        border: 1px solid #dddddd;
+                        font-weight: bold;
+                    }
+                """)
+
+                # 替换右侧框架
+                if self.right_frame:
+                    index = self.splitter.indexOf(self.right_frame)
+                    self.right_frame.hide()
+                    self.right_frame.deleteLater()
+                    self.right_frame = self.detail_table
+                    self.splitter.insertWidget(index, self.detail_table)
+
+            # 清除并设置表格
+            self.detail_table.clear()  # 清除所有内容但保留结构
+            self.detail_table.setColumnCount(1)
+            self.detail_table.setRowCount(1)
+
+            # 确保表头可见
+            self.detail_table.horizontalHeader().setVisible(True)
+            self.detail_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+
+            # 设置无数据消息
+            item = QTableWidgetItem("No detail data available")
+            item.setTextAlignment(Qt.AlignCenter)
+            self.detail_table.setItem(0, 0, item)
+
+            return
+
+        # 获取所有可能的字段（动态收集所有项目的所有字段）
+        all_fields = set()
+        for item in raw_detail['all']:
+            all_fields.update(item.keys())
+
+        fields = sorted(list(all_fields))  # 对字段进行排序，使表头更有序
+
+        # 创建或更新表格
+        if not hasattr(self, 'detail_table') or not self.detail_table:
+            self.detail_table = QTableWidget()
+            self.detail_table.setStyleSheet("""
+                QTableWidget {
+                    border: 1px solid #dddddd;
+                    gridline-color: #dddddd;
+                    background-color: white;
+                    alternate-background-color: #f9f9f9;
+                }
+                QHeaderView::section {
+                    background-color: #f0f0f0;
+                    padding: 4px;
+                    border: 1px solid #dddddd;
+                    font-weight: bold;
+                }
+            """)
+
+            # 替换右侧框架
+            if self.right_frame:
+                index = self.splitter.indexOf(self.right_frame)
+                self.right_frame.hide()
+                self.right_frame.deleteLater()
+                self.right_frame = self.detail_table
+                self.splitter.insertWidget(index, self.detail_table)
+
+        # 清除现有内容
+        self.detail_table.clear()  # 使用clear()而不是单独设置行列数为0
+
+        # 重新设置表格大小
+        self.detail_table.setColumnCount(len(fields) + 1)  # +1 是为了添加序号列
+        self.detail_table.setRowCount(len(raw_detail['all']))
+
+        # 设置表头标签 - 添加序号列和字段列
+        header_labels = ['序号'] + fields
+        self.detail_table.setHorizontalHeaderLabels(header_labels)
+
+        # 确保表头可见
+        self.detail_table.horizontalHeader().setVisible(True)
+
+        # 提取 best 和 filtered 信息，用于高亮显示
+        best_item = raw_detail.get('best', {})
+        filtered_items = raw_detail.get('filtered', [])
+
+        # 用于比较项目的函数
+        def items_match(item1, item2):
+            """比较两个项目是否匹配（基于关键字段）"""
+            if not item1 or not item2:
+                return False
+
+            # 比较关键字段（如 box, text 等）
+            for key in ['box', 'text']:
+                if key in item1 and key in item2 and item1[key] != item2[key]:
+                    return False
+            return True
+
+        # 填充表格
+        from PySide6.QtGui import QBrush
+
+        for row, item in enumerate(raw_detail['all']):
+            # 确定状态
+            is_filtered = any(items_match(item, f_item) for f_item in filtered_items)
+            is_best = items_match(item, best_item)
+
+            # 设置背景色
+            if is_best:
+                bg_color_alpha = Qt.green
+            elif is_filtered:
+                bg_color_alpha = Qt.yellow
+            else:
+                bg_color_alpha = None
+
+            # 添加序号列
+            seq_item = QTableWidgetItem(str(row + 1))
+            seq_item.setTextAlignment(Qt.AlignCenter)
+            if bg_color_alpha:
+                seq_item.setBackground(QBrush(bg_color_alpha))
+            self.detail_table.setItem(row, 0, seq_item)
+
+            # 填充每一列字段数据
+            for col, field in enumerate(fields):
+                table_col = col + 1  # 实际列索引 (加1是因为第0列是序号)
+
+                if field in item:
+                    value = item[field]
+                    item_widget = QTableWidgetItem(str(value))
+                else:
+                    item_widget = QTableWidgetItem("")
+
+                # 设置文本对齐方式
+                item_widget.setTextAlignment(Qt.AlignCenter)
+
+                # 如果需要设置背景色
+                if bg_color_alpha:
+                    item_widget.setBackground(QBrush(bg_color_alpha))
+
+                # 将项目添加到表格
+                self.detail_table.setItem(row, table_col, item_widget)
+
+        # 优化表格显示
+        self.detail_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)  # 序号列自适应内容宽度
+        for i in range(1, self.detail_table.columnCount()):
+            self.detail_table.horizontalHeader().setSectionResizeMode(i, QHeaderView.Stretch)  # 其他列伸展
+
+        self.detail_table.verticalHeader().setVisible(False)  # 隐藏行标题
+        self.detail_table.setAlternatingRowColors(True)  # 交替行颜色
+        self.detail_table.setSortingEnabled(True)  # 启用排序
+
+        # 调整行高
+        for row in range(self.detail_table.rowCount()):
+            self.detail_table.setRowHeight(row, 30)
+
 
     def _load_images(self, images):
         """分批加载图片，避免UI卡顿"""
