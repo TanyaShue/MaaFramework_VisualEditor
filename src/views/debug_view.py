@@ -1,42 +1,5 @@
 from typing import List
 
-
-def update_row_heights(self):
-    """更新每一行中所有容器的高度，使其与该行中最高的容器一致"""
-    # 清空现有行容器记录
-    self.row_containers = {}
-
-    # 按行重新组织容器
-    for i, container in enumerate(self.containers):
-        row = i // self.max_columns
-
-        # 为每行创建容器列表
-        if row not in self.row_containers:
-            self.row_containers[row] = []
-
-        # 添加容器到对应行
-        self.row_containers[row].append(container)
-
-    # 更新每行容器的高度
-    for row, containers in self.row_containers.items():
-        # 如果行中只有一个容器，不需要调整
-        if len(containers) <= 1:
-            continue
-
-        # 找出行中最高容器的高度
-        max_height = 0
-        for container in containers:
-            max_height = max(max_height, container.minimumHeight())
-
-        # 设置行中所有容器的高度为最大高度
-        for container in containers:
-            if container.minimumHeight() != max_height:
-                container.setMinimumHeight(max_height)
-                # 重新应用高度
-                container.updateGeometry()
-                from typing import Dict, Tuple, Callable, List, Optional
-
-
 from PySide6.QtWidgets import (
     QTabWidget, QLabel, QWidget, QPushButton, QVBoxLayout, QHBoxLayout,
     QScrollArea, QFrame, QGridLayout
@@ -44,6 +7,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, Signal, QMetaObject, Slot, Q_ARG, QObject
 from PySide6.QtGui import QCursor
 from maa.notification_handler import NotificationHandler, NotificationType
+from qasync import asyncSlot
 
 from src.maafw import maafw
 from src.views.components.reco_detail_view import RecoDetailView, RecoData
@@ -198,12 +162,12 @@ class RecognitionRow(QWidget):
 
         # 创建顶部按钮布局
         button_layout = QHBoxLayout()
-
+        button_layout.addStretch()
         # 创建清除按钮
         self.clear_btn = QPushButton("Clear All")
         self.clear_btn.setStyleSheet("""
             QPushButton {
-                background-color: #e74c3c;
+                background-color: #5dade2;  /* 浅蓝色 */
                 color: white;
                 border: none;
                 padding: 8px;
@@ -211,11 +175,29 @@ class RecognitionRow(QWidget):
                 font-weight: bold;
             }
             QPushButton:hover {
-                background-color: #c0392b;
+                background-color: #3498db;  /* 深一点的蓝色 */
             }
         """)
         self.clear_btn.clicked.connect(self.clear)
         button_layout.addWidget(self.clear_btn)
+
+        # 创建停止按钮
+        self.stop_btn = QPushButton("Stop")
+        self.stop_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #f1c40f;  /* 黄色 */
+                color: black;
+                border: none;
+                padding: 8px;
+                border-radius: 4px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #d4ac0d;  /* 深一点的黄色 */
+            }
+        """)
+        self.stop_btn.clicked.connect(self.stop_task)  # 确保你定义了 self.stop 方法
+        button_layout.addWidget(self.stop_btn)
 
         # 添加按钮布局到主布局
         main_layout.addLayout(button_layout)
@@ -313,8 +295,11 @@ class RecognitionRow(QWidget):
         self.current_grid_row = len(self.containers) // self.max_columns
         self.current_grid_col = len(self.containers) % self.max_columns
 
-        # 更新行容器高度
-        self.update_row_heights()
+    @asyncSlot()
+    async def stop_task(self):
+        """停止任务"""
+        await maafw.stop_task()
+
 
     def clear(self):
         """清除所有测试容器"""
