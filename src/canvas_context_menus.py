@@ -1,7 +1,9 @@
 import os
+from pathlib import Path
 
 from PySide6.QtCore import QPointF
 from PySide6.QtWidgets import QMenu
+from qasync import asyncSlot
 
 from src.canvas_commands import AddNodeCommand, DeleteNodesCommand, DisconnectNodesCommand
 from src.config_manager import config_manager
@@ -81,10 +83,27 @@ class ContextMenus:
         # 显示菜单
         menu.exec(global_pos)
 
-    def run_task(self,node_name):
+    @asyncSlot()
+    async def run_task(self, node_name):
         print(f"开始运行任务id:{node_name}")
+        await self.connect_mfw_res()
         maafw.run_task(node_name)
+    @asyncSlot()
+    async def connect_mfw_res(self):
+        """连接到指定设备"""
+        try:
+            res_path=Path(config_manager.config["recent_files"]["base_resource_path"])
+            self.canvas.save_to_file()
 
+            success, error = await maafw.load_resource([res_path])
+            if success:
+                print(f"成功连接资源: {res_path}")
+            else:
+                print(f"连接资源失败: {error}")
+
+        except Exception as e:
+            print(f"连接资源时发生错误: {str(e)}")
+            self.is_connected = False
     def show_canvas_context_menu(self, scene_pos, global_pos):
         """显示画布右键菜单
 

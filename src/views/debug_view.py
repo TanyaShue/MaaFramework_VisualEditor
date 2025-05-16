@@ -128,7 +128,7 @@ class RecognitionButton(QPushButton):
 
 
 class RecognitionRow(QWidget):
-    """优化的识别行组件，具有动态调整的布局和容器大小"""
+    """优化的识别行组件，具有动态调整的容器大小，保持组件完整性"""
 
     # 定义一个信号，用于在按钮点击时发送识别ID
     item_clicked = Signal(int)
@@ -163,7 +163,7 @@ class RecognitionRow(QWidget):
                     and noti_type != NotificationType.Failed
             ):
                 return
-            print(f"{detail.reco_id},: {detail.name},{noti_type}")
+
             # 使用信号发送识别结果
             self.signal_relay.recognition_signal.emit(
                 detail.reco_id, detail.name, noti_type == NotificationType.Succeeded
@@ -183,7 +183,7 @@ class RecognitionRow(QWidget):
         self.button_map = {}
 
         # 存储容器对象的字典，用于后续高度调整
-        self.container_map = {}
+        self.containers = []
 
         # 用于记录添加测试按钮点击次数
         self.test_count = 0
@@ -238,16 +238,14 @@ class RecognitionRow(QWidget):
         # 添加滚动区域到主布局
         main_layout.addWidget(self.scroll_area)
 
-        # 设置行容器列表，用于管理行
-        self.row_widgets = []
-
-        # 默认一行放置的容器数量
+        # 计算一行可以放置的容器数量（滚动区域宽度除以容器宽度）
+        # 这个值会在窗口大小调整时动态更新
         self.max_containers_per_row = 3  # 默认值，稍后会更新
 
-        # 默认容器宽度和间距
-        self.container_width = 200
-        self.container_margin = 10
-        self.container_min_height = 100
+        # 设置容器参数
+        self.min_container_width = 180  # 最小容器宽度
+        self.max_container_width = 300  # 最大容器宽度
+        self.container_margin = 10  # 容器之间的间距
 
         # 创建第一行
         self.create_new_row()
@@ -258,118 +256,45 @@ class RecognitionRow(QWidget):
         # 绑定通知处理器
         maafw.notification_handler = self.notification_handler
 
-        # 安装事件过滤器以捕获大小变化
-        self.installEventFilter(self)
+    def resizeEvent(self, event):
+        """窗口大小变化时调整容器宽度"""
+        super().resizeEvent(event)
 
-    def eventFilter(self, obj, event):
-        """事件过滤器，用于捕获大小变化事件"""
-        if obj == self and event.type() == event.__class__.Resize:
-            # 延迟执行布局更新以避免过于频繁的更新
-            QMetaObject.invokeMethod(self, "updateLayout", Qt.QueuedConnection)
-        return super().eventFilter(obj, event)
-
-    @Slot()
-    def updateLayout(self):
-        """更新整个布局"""
-        # 获取新的可用宽度
-        available_width = self.scroll_area.width() - 40  # 滚动区域的宽度减去padding
-
-        # 计算新的每行容器数量
-        new_max = max(1, int(available_width / (self.container_width + self.container_margin)))
-
-        # 如果每行容器数量没变，只调整宽度
-        if new_max == self.max_containers_per_row:
-            # 只更新容器宽度
-            self.updateContainerWidths(available_width, new_max)
+        # 如果没有容器，无需调整
+        if not self.containers:
             return
 
-        # 保存新的最大容器数
-        self.max_containers_per_row = new_max
+        # 计算新的容器宽度
+        self.update_container_widths()
 
-        # 如果没有容器，不需要重新布局
-        if not self.container_map:
-            return
-
-        # 重新布局所有容器
-        self.rebuildLayout()
-
-    def updateContainerWidths(self, available_width, containers_per_row):
+    def update_container_widths(self):
         """更新所有容器的宽度"""
         # 计算新的容器宽度
-        new_width = int((available_width - (containers_per_row - 1) * self.container_margin) / containers_per_row)
-        new_width = max(150, min(300, new_width))  # 限制最小/最大宽度
+        available_width = self.scroll_area.width() - 30  # 减去滚动区域的内边距
 
-        # 只有在宽度有显著变化时才更新
-        if abs(new_width - self.container_width) > 10:
-            self.container_width = new_width
+        # 当前每行最大容器数量
+        max_per_row = self.max_containers_per_row
 
-            # 更新所有容器的宽度
-            for container in self.container_map.values():
-                container.setFixedWidth(self.container_width)
+        # 计算适合的宽度
+        width = int((available_width - (max_per_row - 1) * self.container_margin) / max_per_row)
 
-    def rebuildLayout(self):
-        """重建整个布局"""
-        # 保存所有容器的引用
-        containers = list(self.container_map.values())
+        # 限制宽度在合理范围内
+        container_width = max(self.min_container_width, min(self.max_container_width, width))
 
-        # 清除当前布局
-        self.clearRows()
-
-        # 重置当前行
-        self.containers_per_row = 0
-        self.create_new_row()
-
-        # 重新添加所有容器
-        for container in containers:
-            # 检查是否需要创建新行
-            if self.containers_per_row >= self.max_containers_per_row:
-                self.create_new_row()
-
-            # 更新容器宽度
-            container.setFixedWidth(self.container_width)
-
-            # 将容器添加到当前行
-            self.current_row_layout.addWidget(container)
-
-            # 更新计数
-            self.containers_per_row += 1
-
-    def clearRows(self):
-        """清除所有行，但保留容器"""
-        # 从所有行中移除容器，但不删除容器
-        for row_widget in self.row_widgets:
-            layout = row_widget.layout()
-            while layout.count():
-                item = layout.takeAt(0)
-                # 只移除但不删除控件
-                if item.widget():
-                    item.widget().setParent(None)
-
-            # 隐藏行控件
-            row_widget.hide()
-            row_widget.deleteLater()
-
-        # 清空行列表
-        self.row_widgets.clear()
-
-    def resizeEvent(self, event):
-        """窗口大小变化时调整每行容器数量"""
-        super().resizeEvent(event)
-        # 实际的布局更新由eventFilter处理
+        # 更新所有容器的宽度
+        for container in self.containers:
+            container.setFixedWidth(container_width)
 
     def create_new_row(self):
         """创建新的一行容器"""
         row_widget = QWidget()
         self.current_row_layout = QHBoxLayout(row_widget)
         self.current_row_layout.setAlignment(Qt.AlignLeft)
-        self.current_row_layout.setSpacing(self.container_margin)
+        self.current_row_layout.setSpacing(10)
         self.current_row_layout.setContentsMargins(0, 0, 0, 0)
 
         # 将新行添加到滚动区域的布局中
         self.scroll_layout.addWidget(row_widget)
-
-        # 将行添加到行列表中
-        self.row_widgets.append(row_widget)
 
         # 重置当前行的容器计数
         self.containers_per_row = 0
@@ -388,12 +313,9 @@ class RecognitionRow(QWidget):
                 # 删除控件
                 widget.deleteLater()
 
-        # 清空按钮映射和容器映射
+        # 清空按钮映射和容器列表
         self.button_map.clear()
-        self.container_map.clear()
-
-        # 清空行列表
-        self.row_widgets.clear()
+        self.containers.clear()
 
         # 重置测试计数和行
         self.test_count = 0
@@ -424,14 +346,20 @@ class RecognitionRow(QWidget):
             if current not in self.button_map:
                 self.button_map[current] = {}
 
+            # 计算当前适合的容器宽度
+            available_width = self.scroll_area.width() - 30
+            container_width = int((available_width - (
+                        self.max_containers_per_row - 1) * self.container_margin) / self.max_containers_per_row)
+            container_width = max(self.min_container_width, min(self.max_container_width, container_width))
+
             # 创建一个新的垂直容器
             container = QWidget()
             container.setObjectName(f"list_container_{current}")
             container.setStyleSheet("background-color: #f9f9f9; border-radius: 6px; border: 1px solid #dddddd;")
 
-            # 设置固定宽度
-            container.setFixedWidth(self.container_width)
-            container.setMinimumHeight(self.container_min_height)  # 设置最小高度确保可见
+            # 设置固定宽度和最小高度
+            container.setFixedWidth(container_width)
+            container.setMinimumHeight(100)  # 设置最小高度确保可见
 
             # 创建容器的布局
             container_layout = QVBoxLayout(container)
@@ -450,13 +378,11 @@ class RecognitionRow(QWidget):
             container_layout.addWidget(separator)
 
             # 添加带状态指示器的按钮
+            # 根据按钮数量计算预估高度
             buttons_height = 0
             for name in list_to_reco:
                 # 创建自定义按钮
                 button = RecognitionButton(name, current)
-
-                # 估算按钮高度 (基本高度 + 内容高度)
-                button_height = 30  # 估计的基础按钮高度
 
                 # 连接按钮点击信号
                 button.clicked.connect(lambda checked, btn=button: self.on_button_clicked(btn))
@@ -464,25 +390,26 @@ class RecognitionRow(QWidget):
                 # 将按钮添加到布局
                 container_layout.addWidget(button)
 
-                # 累计按钮高度
-                buttons_height += button_height
+                # 按钮预估高度
+                buttons_height += 35  # 每个按钮大约35像素高
 
                 # 保存按钮引用到映射中
                 self.button_map[current][name] = button
 
-            # 计算容器的适应高度 (标题 + 分隔线 + 按钮总高度 + 内边距)
-            adapted_height = 30 + 10 + buttons_height + 40
-            # 设置最小高度，但不设置固定高度，允许容器自适应
-            container.setMinimumHeight(max(self.container_min_height, adapted_height))
+            # 动态设置容器高度
+            if len(list_to_reco) > 0:
+                # 计算适当的容器高度 (标题 + 分隔线 + 按钮总高度 + 内边距)
+                adapted_height = 40 + 2 + buttons_height + 40
+                container.setMinimumHeight(max(100, adapted_height))
 
             # 确保有足够的空间显示所有按钮
             container_layout.addStretch()
 
-            # 保存容器引用
-            self.container_map[current] = container
-
             # 将新容器添加到当前行布局中
             self.current_row_layout.addWidget(container)
+
+            # 添加到容器列表
+            self.containers.append(container)
 
             # 增加当前行的容器计数
             self.containers_per_row += 1
