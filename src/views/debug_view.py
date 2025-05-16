@@ -9,6 +9,7 @@ from PySide6.QtGui import QCursor
 from maa.notification_handler import NotificationHandler, NotificationType
 
 from src.maafw import maafw
+from src.views.components.reco_detail_view import RecoDetailView, RecoData
 from src.views.components.status_indicator import Status
 
 
@@ -44,9 +45,7 @@ class StatusIndicator(QLabel):
         self.update()
 
 
-class RecoData:
-    """存储识别数据的类"""
-    data: Dict[int, Tuple[str, bool]] = {}
+
 
 
 # 创建一个信号中继器类，用于跨线程发送信号
@@ -448,68 +447,6 @@ class RecognitionRow(QWidget):
         else:
             print(f"Button clicked but no recognition data available: {button.name}")
 
-class RecoDetailView(QWidget):
-    """识别详情页面"""
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-
-        # 创建布局
-        self.layout = QVBoxLayout(self)
-
-        # 创建标题标签
-        # self.title_label = QLabel("Recognition Details")
-        # self.title_label.setStyleSheet("font-size: 16pt; font-weight: bold;")
-        # self.layout.addWidget(self.title_label)
-
-        # 创建详情标签
-        self.details_layout = QVBoxLayout()
-
-        # 创建信息显示区
-        self.info_frame = QFrame()
-        self.info_frame.setStyleSheet("""
-            QFrame {
-                background-color: #f9f9f9;
-                border-radius: 6px;
-                border: 1px solid #dddddd;
-                padding: 10px;
-            }
-            QLabel {
-                font-size: 14px;
-                margin: 5px;
-            }
-        """)
-        self.info_layout = QVBoxLayout(self.info_frame)
-
-        self.id_label = QLabel("Recognition ID: -")
-        self.name_label = QLabel("Name: -")
-        self.status_indicator = QLabel("Status: -")
-
-        self.info_layout.addWidget(self.id_label)
-        self.info_layout.addWidget(self.name_label)
-        self.info_layout.addWidget(self.status_indicator)
-
-        # 添加信息区到布局
-        self.layout.addWidget(self.info_frame)
-
-        # 添加伸展因子，使内容显示在顶部
-        self.layout.addStretch(1)
-
-    def update_details(self, reco_id: int):
-        """更新详情内容"""
-        name, hit = RecoData.data.get(reco_id, ("Unknown", False))
-
-        self.id_label.setText(f"Recognition ID: {reco_id}")
-        self.name_label.setText(f"Name: {name}")
-
-        # 设置成功/失败的状态
-        if hit:
-            self.status_indicator.setText("Status: Success")
-            self.status_indicator.setStyleSheet("color: #4caf50; font-weight: bold;")
-        else:
-            self.status_indicator.setText("Status: Failed")
-            self.status_indicator.setStyleSheet("color: #f44336; font-weight: bold;")
-
 
 class DebuggerView(QTabWidget):
     """带有标签页的识别容器"""
@@ -517,21 +454,21 @@ class DebuggerView(QTabWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
 
-        # 创建第一个标签页 - 识别行
+        # Create first tab - Recognition Row
         self.recognition_row = RecognitionRow()
         self.addTab(self.recognition_row, "Recognition")
 
-        # 连接识别项点击信号到处理函数
+        # Connect recognition item click signal to handler
         self.recognition_row.item_clicked.connect(self.open_details)
 
-        # 创建第二个标签页 - 识别详情页面
+        # Create second tab - Recognition Details
         self.detail_view = RecoDetailView()
         self.addTab(self.detail_view, "Details")
 
     def open_details(self, reco_id: int):
-        """打开详情页并显示指定reco_id的信息"""
-        # 更新详情页的内容
+        """Open details tab and show info for the specified recognition ID"""
+        # Update details with the selected ID
         self.detail_view.update_details(reco_id)
 
-        # 切换到详情标签页
+        # Switch to details tab
         self.setCurrentIndex(1)
