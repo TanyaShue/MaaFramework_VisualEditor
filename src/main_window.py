@@ -9,6 +9,7 @@ from src.views.node_library import NodeLibrary
 from src.views.node_properties_editor import NodePropertiesEditor
 from .config_manager import config_manager
 from .views.controller_view import ControllerView
+from .views.debug_view import DebuggerView
 from .views.resource_library import ResourceLibrary
 
 
@@ -25,6 +26,7 @@ class MainWindow(QMainWindow):
         self.controller_view = ControllerView()
         self.resource_library = ResourceLibrary()
         self.property_editor = NodePropertiesEditor()
+        self.debugger_view = DebuggerView()
         # self.node_library = NodeLibrary()
 
         # 设置中央部件
@@ -110,11 +112,18 @@ class MainWindow(QMainWindow):
         controller_dock.setAllowedAreas(Qt.BottomDockWidgetArea | Qt.RightDockWidgetArea)
         controller_dock.setObjectName("controller_dock")
         self.dock_widgets["controller"] = controller_dock
+        # 创建控制器视图停靠窗口
+        debugger_view_dock = QDockWidget("调试器", self)
+        debugger_view_dock.setWidget(self.debugger_view)
+        debugger_view_dock.setAllowedAreas(Qt.BottomDockWidgetArea | Qt.RightDockWidgetArea)
+        debugger_view_dock.setObjectName("debugger_view_dock")
+        self.dock_widgets["debugger_view"] = debugger_view_dock
 
         # 添加停靠窗口到主窗口 - 修改布局位置
         # self.addDockWidget(Qt.LeftDockWidgetArea, node_library_dock)
         self.addDockWidget(Qt.LeftDockWidgetArea, resource_library_dock)
         self.addDockWidget(Qt.BottomDockWidgetArea, controller_dock)
+        self.addDockWidget(Qt.BottomDockWidgetArea, debugger_view_dock)
         self.addDockWidget(Qt.RightDockWidgetArea, properties_dock)  # 将属性编辑器放在右侧
 
         # 创建标签页配置 - 使属性编辑器可以贴靠到控制器视图右侧

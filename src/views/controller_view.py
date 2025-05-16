@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 
 from PySide6.QtCore import Qt, Signal, QThread
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
@@ -8,6 +9,7 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
 from maa.toolkit import Toolkit
 from qasync import asyncSlot
 
+from src.config_manager import config_manager
 from src.maafw import maafw
 from src.views.components.deviceImage_view import DeviceImageView
 
@@ -183,8 +185,11 @@ class ControllerView(QWidget):
         btn_connect.clicked.connect(self.connect_device)
         btn_disconnect = QPushButton("断开连接")
         btn_disconnect.clicked.connect(self.disconnect_device)
+        btn_connect_res = QPushButton("连接资源")
+        btn_connect_res.clicked.connect(self.connect_mfw_res)
         self.left_layout.addWidget(btn_connect)
         self.left_layout.addWidget(btn_disconnect)
+        self.left_layout.addWidget(btn_connect_res)
         self.left_layout.addStretch()
 
         # 设置内容小部件为滚动区域的小部件
@@ -373,6 +378,25 @@ class ControllerView(QWidget):
                 await self.update_device_img()
         except Exception as e:
             print(f"连接设备时发生错误: {str(e)}")
+            self.is_connected = False
+            self.update_connection_status()
+
+    @asyncSlot()
+    async def connect_mfw_res(self):
+        """连接到指定设备"""
+        try:
+            res_path=Path(config_manager.config["recent_files"]["base_resource_path"])
+            success, error = await maafw.load_resource([res_path])
+            if success:
+                print(f"成功连接资源: {res_path}")
+            else:
+                print(f"连接资源失败: {error}")
+
+
+            self.update_connection_status()
+
+        except Exception as e:
+            print(f"连接资源时发生错误: {str(e)}")
             self.is_connected = False
             self.update_connection_status()
 

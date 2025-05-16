@@ -5,6 +5,7 @@ from PySide6.QtWidgets import QMenu
 
 from src.canvas_commands import AddNodeCommand, DeleteNodesCommand, DisconnectNodesCommand
 from src.config_manager import config_manager
+from src.maafw import maafw
 from src.pipeline import TaskNode
 from src.views.node_system.node import Node
 
@@ -51,10 +52,13 @@ class ContextMenus:
 
             if connections:
                 disconnect_menu = QMenu("断开连接", menu)
+                # disconnect_menu = QMenu("断开连接", menu)
 
                 for conn in connections:
                     source_node = conn.start_port.parent_node
                     target_node = conn.end_port.parent_node
+                    if not source_node.task_node or not target_node.task_node:
+                        continue
                     # 根据端口类型获取端口名称
                     source_port_name = source_node.task_node.name
                     target_port_name = target_node.task_node.name
@@ -64,10 +68,22 @@ class ContextMenus:
                         lambda checked=False, c=conn: self._disconnect_nodes(c)
                     )
 
+
+
                 menu.addMenu(disconnect_menu)
+        menu.addSeparator()
+        if not multiple_selection and node.task_node:
+            debug_action = menu.addAction("调试该节点")
+            debug_action.triggered.connect(
+                lambda checked=False, n=node.task_node.name: self.run_task(n)
+            )
 
         # 显示菜单
         menu.exec(global_pos)
+
+    def run_task(self,node_name):
+        print(f"开始运行任务id:{node_name}")
+        maafw.run_task(node_name)
 
     def show_canvas_context_menu(self, scene_pos, global_pos):
         """显示画布右键菜单

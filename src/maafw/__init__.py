@@ -123,10 +123,9 @@ class MaaFW:
 
         return (True, None)
 
-    @asyncify
     def run_task(
         self, entry: str, pipeline_override: dict = {}
-    ) -> Tuple[bool, Optional[str]]:
+    ) :
         if not self.tasker:
             self.tasker = Tasker(notification_handler=self.notification_handler)
 
@@ -136,8 +135,8 @@ class MaaFW:
         self.tasker.bind(self.resource, self.controller)
         if not self.tasker.inited:
             return (False, "Failed to init MaaFramework tasker")
-
-        return (self.tasker.post_task(entry, pipeline_override).wait().succeeded, None)
+        self.tasker.post_task(entry, pipeline_override)
+        return None
 
     @asyncify
     def stop_task(self):
