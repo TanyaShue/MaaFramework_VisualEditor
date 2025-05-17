@@ -299,7 +299,8 @@ class RecognitionRow(QWidget):
         """停止任务"""
         await maafw.stop_task()
 
-    def clear(self):
+    @asyncSlot()
+    async def clear(self):
         """清除所有测试容器"""
         # 移除网格布局中的所有控件
         while self.grid_layout.count():
@@ -322,6 +323,8 @@ class RecognitionRow(QWidget):
         self.current_grid_row = 0
         self.current_grid_col = 0
 
+        await maafw.clear_cache()
+        print("以清除缓存")
     # 使用Slot装饰器表明这是一个槽函数
     @Slot(str, list)
     def add_list_containers_safe(self, current: str, list_to_reco: List[str]):

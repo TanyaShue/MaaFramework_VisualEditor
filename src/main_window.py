@@ -27,7 +27,6 @@ class MainWindow(QMainWindow):
         self.resource_library = ResourceLibrary()
         self.property_editor = NodePropertiesEditor()
         self.debugger_view = DebuggerView()
-        # self.node_library = NodeLibrary()
 
         # 设置中央部件
         self.setCentralWidget(self.canvas)
@@ -471,6 +470,8 @@ class MainWindow(QMainWindow):
 
             # 恢复控制器状态
             self.config_manager.restore_controller_state(self.controller_view)
+
+
 
             self.status_label.setText("已从配置恢复应用程序状态")
         except Exception as e:

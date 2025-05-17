@@ -79,11 +79,11 @@ class ContextMenus:
             debug_menu = QMenu("调试", menu)
 
             # Add the three debug options to the submenu
-            debug_action = debug_menu.addAction("调试该节点")
+            debug_action = debug_menu.addAction("从该节点开始调试")
             debug_action.triggered.connect(
                 lambda checked=False, n=node.task_node: self.run_task(n)
             )
-            menu.addSeparator()
+            debug_menu.addSeparator()
             debug_only_action = debug_menu.addAction("仅调试该节点")
             debug_only_action.triggered.connect(
                 lambda checked=False, n=node.task_node: self.run_task(n, debug_only=True)
