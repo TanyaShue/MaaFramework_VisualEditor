@@ -325,34 +325,91 @@ class RecoDetailView(QWidget):
     def _update_detail_table(self, raw_detail):
         """更新详细数据表格"""
 
+        # 创建表格标签区域，用于放置表格说明信息
+        if not hasattr(self, 'table_container'):
+            self.table_container = QWidget()
+            self.table_container_layout = QVBoxLayout(self.table_container)
+            self.table_container_layout.setContentsMargins(3, 3, 3, 3)
+            self.table_container_layout.setSpacing(2)
+
+            # 创建表格上方的标签，用于显示颜色说明
+            self.table_label = QLabel()
+            self.table_label.setStyleSheet("""
+                font-size: 11pt; 
+                padding: 8px 10px;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #f8f8f8, stop:1 #f0f0f0);
+                border-radius: 4px;
+                border: 1px solid #dcdcdc;
+                color: #444444;
+                font-weight: normal;
+                margin-bottom: 4px;
+            """)
+            self.table_container_layout.addWidget(self.table_label)
+
+            # 创建表格实例
+            self.detail_table = QTableWidget()
+            self.detail_table.setStyleSheet("""
+                QTableWidget {
+                    border: 1px solid #dddddd;
+                    gridline-color: #dddddd;
+                    background-color: white;
+                    alternate-background-color: #f9f9f9;
+                }
+                QHeaderView::section {
+                    background-color: #f0f0f0;
+                    padding: 4px;
+                    border: 1px solid #dddddd;
+                    font-weight: bold;
+                }
+            """)
+            self.table_container_layout.addWidget(self.detail_table)
+
+            # 替换右侧框架
+            if self.right_frame:
+                index = self.splitter.indexOf(self.right_frame)
+                self.right_frame.hide()
+                self.right_frame.deleteLater()
+                self.right_frame = self.table_container
+                self.splitter.insertWidget(index, self.table_container)
+
+        # 更新表格标签内容，添加颜色说明
+        self.table_label.setText("""
+            <table style='border-collapse: separate; border-spacing: 10px 0px;'>
+                <tr>
+                    <td style='text-align: center; font-weight: bold;'>颜色标记说明:</td>
+                    <td>
+                        <div style='
+                            display: inline-block; 
+                            width: 16px; 
+                            height: 16px; 
+                            background-color: #00c853; 
+                            border-radius: 3px; 
+                            vertical-align: middle; 
+                            border: 1px solid #00a040;
+                            margin-right: 5px;
+                        '></div>
+                        <span style='vertical-align: middle; font-weight: bold;'>best</span>
+                    </td>
+                    <td>
+                        <div style='
+                            display: inline-block; 
+                            width: 16px; 
+                            height: 16px; 
+                            background-color: #ffd600; 
+                            border-radius: 3px; 
+                            vertical-align: middle; 
+                            border: 1px solid #c7a500;
+                            margin-right: 5px;
+                        '></div>
+                        <span style='vertical-align: middle; font-weight: bold;'>filter</span>
+                    </td>
+                </tr>
+            </table>
+        """)
+
         # 检查是否有有效数据
         if not raw_detail or 'all' not in raw_detail or not raw_detail['all']:
             # 如果没有数据，创建简单表格
-            if not hasattr(self, 'detail_table') or not self.detail_table:
-                self.detail_table = QTableWidget()
-                self.detail_table.setStyleSheet("""
-                    QTableWidget {
-                        border: 1px solid #dddddd;
-                        gridline-color: #dddddd;
-                        background-color: white;
-                        alternate-background-color: #f9f9f9;
-                    }
-                    QHeaderView::section {
-                        background-color: #f0f0f0;
-                        padding: 4px;
-                        border: 1px solid #dddddd;
-                        font-weight: bold;
-                    }
-                """)
-
-                # 替换右侧框架
-                if self.right_frame:
-                    index = self.splitter.indexOf(self.right_frame)
-                    self.right_frame.hide()
-                    self.right_frame.deleteLater()
-                    self.right_frame = self.detail_table
-                    self.splitter.insertWidget(index, self.detail_table)
-
             # 清除并设置表格
             self.detail_table.clear()  # 清除所有内容但保留结构
             self.detail_table.setColumnCount(1)
@@ -375,32 +432,6 @@ class RecoDetailView(QWidget):
             all_fields.update(item.keys())
 
         fields = sorted(list(all_fields))  # 对字段进行排序，使表头更有序
-
-        # 创建或更新表格
-        if not hasattr(self, 'detail_table') or not self.detail_table:
-            self.detail_table = QTableWidget()
-            self.detail_table.setStyleSheet("""
-                QTableWidget {
-                    border: 1px solid #dddddd;
-                    gridline-color: #dddddd;
-                    background-color: white;
-                    alternate-background-color: #f9f9f9;
-                }
-                QHeaderView::section {
-                    background-color: #f0f0f0;
-                    padding: 4px;
-                    border: 1px solid #dddddd;
-                    font-weight: bold;
-                }
-            """)
-
-            # 替换右侧框架
-            if self.right_frame:
-                index = self.splitter.indexOf(self.right_frame)
-                self.right_frame.hide()
-                self.right_frame.deleteLater()
-                self.right_frame = self.detail_table
-                self.splitter.insertWidget(index, self.detail_table)
 
         # 清除现有内容
         self.detail_table.clear()  # 使用clear()而不是单独设置行列数为0
@@ -487,7 +518,6 @@ class RecoDetailView(QWidget):
         # 调整行高
         for row in range(self.detail_table.rowCount()):
             self.detail_table.setRowHeight(row, 30)
-
 
     def _load_images(self, images):
         """分批加载图片，避免UI卡顿"""

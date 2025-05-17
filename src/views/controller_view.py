@@ -5,7 +5,7 @@ from PySide6.QtCore import Qt, Signal, QThread
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                                QFormLayout, QLineEdit, QPushButton, QComboBox,
                                QSplitter, QStackedWidget, QGroupBox,
-                               QMenu, QSizePolicy, QScrollArea)
+                               QMenu, QSizePolicy, QScrollArea, QGridLayout)
 from maa.toolkit import Toolkit
 from qasync import asyncSlot
 
@@ -105,39 +105,38 @@ class ControllerView(QWidget):
         title_label.setStyleSheet("font-weight: bold; font-size: 16px;")
         self.left_layout.addWidget(title_label)
 
-        # 设备类型组
-        device_type_group = QGroupBox("设备类型")
-        dt_layout = QFormLayout(device_type_group)
-        dt_layout.setLabelAlignment(Qt.AlignRight)
+        # 合并后的设备类型和搜索组
+        search_group = QGroupBox("设备搜索与类型")
+        grid_layout = QGridLayout(search_group)
+        grid_layout.setContentsMargins(5, 5, 5, 5)
+        grid_layout.setSpacing(10)
+
+        # 第一行: 控制器类型标签和下拉框与搜索按钮和状态在同一行
+        type_label = QLabel("控制器类型:")
+        type_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        grid_layout.addWidget(type_label, 0, 0)
         self.device_type_combo = QComboBox()
         self.device_type_combo.addItem("ADB设备", "ADB")
         self.device_type_combo.addItem("Win32窗口", "WIN32")
         self.device_type_combo.currentIndexChanged.connect(self.device_type_changed)
-        dt_layout.addRow(QLabel("控制器类型:"), self.device_type_combo)
-        self.left_layout.addWidget(device_type_group)
+        grid_layout.addWidget(self.device_type_combo, 0, 1)
 
-        # 设备搜索组
-        search_group = QGroupBox("设备搜索")
-        search_layout = QFormLayout(search_group)
-        search_layout.setLabelAlignment(Qt.AlignRight)
-        search_layout.setContentsMargins(5, 5, 5, 5)
-        search_layout.setSpacing(10)
-
-        # 搜索按钮行
-        btn_layout = QHBoxLayout()
+        # 第一行右侧: 搜索按钮和状态
         self.search_btn = QPushButton("搜索设备")
         self.search_btn.clicked.connect(self.search_devices)
+        grid_layout.addWidget(self.search_btn, 0, 2)
         self.search_status = QLabel("未搜索")
-        btn_layout.addWidget(self.search_btn)
-        btn_layout.addWidget(self.search_status)
-        btn_layout.addStretch()
-        search_layout.addRow(btn_layout)
+        grid_layout.addWidget(self.search_status, 0, 3)
 
-        # 设备下拉框
+        # 第二行: 设备标签和下拉框
+        device_label = QLabel("发现的设备:")
+        device_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        grid_layout.addWidget(device_label, 1, 0)
         self.device_combo = QComboBox()
         self.device_combo.setMinimumWidth(200)
         self.device_combo.currentIndexChanged.connect(self.device_selected)
-        search_layout.addRow(QLabel("发现的设备:"), self.device_combo)
+        grid_layout.addWidget(self.device_combo, 1, 1, 1, 3)  # 跨越3列
+
         self.left_layout.addWidget(search_group)
 
         # 设备配置组

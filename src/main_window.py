@@ -2,7 +2,7 @@ from PySide6.QtCore import Qt, Slot
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (QMainWindow, QDockWidget, QStatusBar, QToolBar,
                                QWidget, QLabel, QPushButton, QHBoxLayout,
-                               QMessageBox, QFileDialog)
+                               QMessageBox, QFileDialog, QSizePolicy)
 
 from src.views.node_canvas import NodeCanvas
 from src.views.node_library import NodeLibrary
@@ -154,6 +154,17 @@ class MainWindow(QMainWindow):
         save_pipeline = tool_bar.addAction("保存")
         save_pipeline.triggered.connect(self._do_save)
 
+        # 添加弹性空间将标签推到最右侧
+        spacer = QWidget()
+        spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        tool_bar.addWidget(spacer)
+
+        # 添加标签
+        label1 = QLabel("标签1")
+        label2 = QLabel("标签2")
+
+        tool_bar.addWidget(label1)
+        tool_bar.addWidget(label2)
     def _create_status_bar(self):
         status_bar = QStatusBar()
         self.setStatusBar(status_bar)
