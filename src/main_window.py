@@ -136,15 +136,6 @@ class MainWindow(QMainWindow):
     def _create_menu_bar(self):
         menu_bar = self.menuBar()
 
-        # 文件菜单
-        file_menu = menu_bar.addMenu("文件")
-
-        file_menu.addSeparator()
-
-        exit_action = file_menu.addAction("退出")
-        exit_action.setShortcut(QKeySequence.Quit)
-        exit_action.triggered.connect(self.close)
-
         # 编辑菜单
         edit_menu = menu_bar.addMenu("编辑")
 

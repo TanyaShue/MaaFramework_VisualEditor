@@ -1,3 +1,5 @@
+import copy
+import json
 import os
 from pathlib import Path
 
@@ -70,29 +72,59 @@ class ContextMenus:
                         lambda checked=False, c=conn: self._disconnect_nodes(c)
                     )
 
-
-
                 menu.addMenu(disconnect_menu)
         menu.addSeparator()
         if not multiple_selection and node.task_node:
-            debug_action = menu.addAction("调试该节点")
+            # Create a debug submenu instead of a single action
+            debug_menu = QMenu("调试", menu)
+
+            # Add the three debug options to the submenu
+            debug_action = debug_menu.addAction("调试该节点")
             debug_action.triggered.connect(
-                lambda checked=False, n=node.task_node.name: self.run_task(n)
+                lambda checked=False, n=node.task_node: self.run_task(n)
+            )
+            menu.addSeparator()
+            debug_only_action = debug_menu.addAction("仅调试该节点")
+            debug_only_action.triggered.connect(
+                lambda checked=False, n=node.task_node: self.run_task(n, debug_only=True)
             )
 
+            recognize_only_action = debug_menu.addAction("仅识别该节点")
+            recognize_only_action.triggered.connect(
+                lambda checked=False, n=node.task_node: self.run_task(n, debug_only=True, recognize_only=True)
+            )
+
+            # Add the submenu to the main context menu
+            menu.addMenu(debug_menu)
         # 显示菜单
         menu.exec(global_pos)
 
     @asyncSlot()
-    async def run_task(self, node_name):
-        print(f"开始运行任务id:{node_name}")
-        await self.connect_mfw_res()
-        maafw.run_task(node_name)
+    async def run_task(self, node, debug_only=False, recognize_only=False):
+        if debug_only:
+            debug_node = copy.deepcopy(node)
+            debug_node.name = f"debug_{node.name}"
+
+            # Set next, interrupt, and on_error attributes to None
+            debug_node.next = None
+            debug_node.interrupt = None
+            debug_node.on_error = None
+            if recognize_only:
+                debug_node.action = None
+            print(f"开始调试节点:{debug_node.name},参数:{debug_node.to_json()}")
+
+            # Run the debug node instead of the original
+            maafw.run_task(debug_node.name, json.loads(debug_node.to_json()))
+        else:
+            print(f"开始运行任务id:{node.name}")
+            await self.connect_mfw_res()
+            maafw.run_task(node.name)
+
     @asyncSlot()
     async def connect_mfw_res(self):
         """连接到指定设备"""
         try:
-            res_path=Path(config_manager.config["recent_files"]["base_resource_path"])
+            res_path = Path(config_manager.config["recent_files"]["base_resource_path"])
             self.canvas.save_to_file()
 
             success, error = await maafw.load_resource([res_path])
@@ -104,6 +136,7 @@ class ContextMenus:
         except Exception as e:
             print(f"连接资源时发生错误: {str(e)}")
             self.is_connected = False
+
     def show_canvas_context_menu(self, scene_pos, global_pos):
         """显示画布右键菜单
 
@@ -143,7 +176,7 @@ class ContextMenus:
         for node_title, node_type in node_types:
             add_node_menu.addAction(node_title).triggered.connect(
                 lambda checked=False, t=node_title, type=node_type:
-                self._add_common_node( scene_pos)
+                self._add_common_node(scene_pos)
             )
 
         menu.addMenu(add_node_menu)
@@ -213,7 +246,6 @@ class ContextMenus:
         """从剪贴板粘贴节点"""
         if not hasattr(self.canvas, 'clipboard') or not self.canvas.clipboard:
             return
-
 
         # 清除当前选择
         self.canvas.scene.clearSelection()
