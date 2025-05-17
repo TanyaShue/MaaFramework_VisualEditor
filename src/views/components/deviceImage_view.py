@@ -626,7 +626,7 @@ class DeviceImageView(QGraphicsView):
 
         if self.control.open_node:
             node = self.control.open_node
-            template = node.task_node.template
+            template = getattr(node.task_node, 'template', None)
 
             if template is None:
                 node.task_node.template = [relative_path]

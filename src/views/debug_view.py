@@ -115,7 +115,6 @@ class RecognitionRow(QWidget):
 
             # 使用信号发送数据，而不是直接调用回调
             self.signal_relay.add_list_signal.emit(detail.name, detail.next_list)
-            print(f"Emitted signal for {detail.name} with {len(detail.next_list)} items")
 
         def on_node_recognition(
                 self,
@@ -300,7 +299,6 @@ class RecognitionRow(QWidget):
         """停止任务"""
         await maafw.stop_task()
 
-
     def clear(self):
         """清除所有测试容器"""
         # 移除网格布局中的所有控件
@@ -329,7 +327,6 @@ class RecognitionRow(QWidget):
     def add_list_containers_safe(self, current: str, list_to_reco: List[str]):
         """通过信号安全调用的添加容器方法"""
         try:
-            print(f"Safely adding list container: {current} with {len(list_to_reco)} items")
 
             # 为当前组创建按钮映射字典
             if current not in self.button_map:
@@ -428,7 +425,6 @@ class RecognitionRow(QWidget):
                         row_container.setMinimumHeight(max_height)
                         row_container.updateGeometry()
 
-            print(f"Added new list container {current} with {len(list_to_reco)} button(s)")
         except Exception as e:
             print(f"Error in add_list_containers_safe: {e}")
 
