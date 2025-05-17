@@ -427,10 +427,16 @@ class RecognitionRow(QWidget):
                     if row_container.minimumHeight() != max_height:
                         row_container.setMinimumHeight(max_height)
                         row_container.updateGeometry()
-
+            # 在添加完新容器后，滚动到底部
+            QMetaObject.invokeMethod(self, "scroll_to_bottom", Qt.QueuedConnection)
         except Exception as e:
             print(f"Error in add_list_containers_safe: {e}")
 
+    @Slot()
+    def scroll_to_bottom(self):
+        """滚动到底部"""
+        vsb = self.scroll_area.verticalScrollBar()
+        vsb.setValue(vsb.maximum())
     @Slot(int, str, bool)
     def on_recognized(self, reco_id: int, name: str, success: bool):
         """处理识别事件的槽函数"""

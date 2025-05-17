@@ -8,6 +8,7 @@ from src.views.node_canvas import NodeCanvas
 from src.views.node_library import NodeLibrary
 from src.views.node_properties_editor import NodePropertiesEditor
 from .config_manager import config_manager
+from .views.controller_setting import DeviceSettingsView
 from .views.controller_view import ControllerView
 from .views.debug_view import DebuggerView
 from .views.resource_library import ResourceLibrary
@@ -21,9 +22,11 @@ class MainWindow(QMainWindow):
 
         # 创建配置管理器
         self.config_manager = config_manager
-        # 创建核心组件 - 使用增强的画布
+
+        # 创建核心组件
         self.canvas = NodeCanvas()
         self.controller_view = ControllerView()
+        self.device_settings_view = DeviceSettingsView()
         self.resource_library = ResourceLibrary()
         self.property_editor = NodePropertiesEditor()
         self.debugger_view = DebuggerView()
@@ -56,7 +59,6 @@ class MainWindow(QMainWindow):
         # 恢复应用程序状态
         self.restore_application_state()
 
-    # 修改MainWindow.closeEvent方法
     def closeEvent(self, event):
         """处理窗口关闭事件。"""
         if self.has_unsaved_changes:
@@ -78,26 +80,26 @@ class MainWindow(QMainWindow):
                 event.ignore()
                 return
 
-        # 保存应用程序状态（包括窗口位置、大小、停靠窗口状态等）
+        # 保存应用程序状态
         self.save_application_state()
-
         event.accept()
 
     def _create_docks(self):
-        # 创建节点库停靠窗口
-        # node_library_dock = QDockWidget("节点库", self)
-        # node_library_dock.setWidget(self.node_library)
-        # node_library_dock.setAllowedAreas(Qt.LeftDockWidgetArea | Qt.RightDockWidgetArea)
-        # node_library_dock.setObjectName("node_library_dock")
-        # self.dock_widgets["node_library"] = node_library_dock
+        # 创建设备设置停靠窗口
+        device_settings_dock = QDockWidget("设备设置", self)
+        device_settings_dock.setWidget(self.device_settings_view)
+        device_settings_dock.setAllowedAreas(Qt.LeftDockWidgetArea | Qt.RightDockWidgetArea)
+        device_settings_dock.setObjectName("device_settings_dock")
+        self.dock_widgets["device_settings"] = device_settings_dock
 
-        # 创建属性编辑器停靠窗口 - 修改允许区域
+        # 创建属性编辑器停靠窗口
         properties_dock = QDockWidget("节点属性", self)
         properties_dock.setWidget(self.property_editor)
         properties_dock.setAllowedAreas(Qt.LeftDockWidgetArea | Qt.RightDockWidgetArea | Qt.BottomDockWidgetArea)
         properties_dock.setObjectName("properties_dock")
         self.dock_widgets["properties"] = properties_dock
 
+        # 创建资源库停靠窗口
         resource_library_dock = QDockWidget("资源库", self)
         resource_library_dock.setWidget(self.resource_library)
         resource_library_dock.setAllowedAreas(Qt.LeftDockWidgetArea | Qt.RightDockWidgetArea)
@@ -110,30 +112,32 @@ class MainWindow(QMainWindow):
         controller_dock.setAllowedAreas(Qt.BottomDockWidgetArea | Qt.RightDockWidgetArea)
         controller_dock.setObjectName("controller_dock")
         self.dock_widgets["controller"] = controller_dock
-        # 创建控制器视图停靠窗口
+
+        # 创建调试器视图停靠窗口
         debugger_view_dock = QDockWidget("调试器", self)
         debugger_view_dock.setWidget(self.debugger_view)
         debugger_view_dock.setAllowedAreas(Qt.BottomDockWidgetArea | Qt.RightDockWidgetArea)
         debugger_view_dock.setObjectName("debugger_view_dock")
         self.dock_widgets["debugger_view"] = debugger_view_dock
 
-        # 添加停靠窗口到主窗口 - 修改布局位置
-        # self.addDockWidget(Qt.LeftDockWidgetArea, node_library_dock)
+        # 添加停靠窗口到主窗口，并设置优化后的布局
+        self.addDockWidget(Qt.LeftDockWidgetArea, device_settings_dock)
         self.addDockWidget(Qt.LeftDockWidgetArea, resource_library_dock)
+        self.addDockWidget(Qt.RightDockWidgetArea, properties_dock)  # 将属性编辑器放在右侧
         self.addDockWidget(Qt.BottomDockWidgetArea, controller_dock)
         self.addDockWidget(Qt.BottomDockWidgetArea, debugger_view_dock)
-        self.addDockWidget(Qt.RightDockWidgetArea, properties_dock)  # 将属性编辑器放在右侧
 
-        # 创建标签页配置 - 使属性编辑器可以贴靠到控制器视图右侧
-        self.tabifyDockWidget(controller_dock, properties_dock)
+        # 设置底部Dock的标签页分组
+        self.tabifyDockWidget(controller_dock, debugger_view_dock)
 
-        # 确保属性编辑器在前面
-        properties_dock.raise_()
+        # 确保控制器视图在前面
+        controller_dock.raise_()
 
     def _create_tool_bar(self):
         tool_bar = QToolBar("主工具栏")
         self.addToolBar(tool_bar)
 
+        # 操作按钮
         undo_action = tool_bar.addAction("撤销")
         undo_action.triggered.connect(self.undo)
 
@@ -142,6 +146,7 @@ class MainWindow(QMainWindow):
 
         tool_bar.addSeparator()
 
+        # 视图控制按钮
         zoom_in_action = tool_bar.addAction("放大")
         zoom_in_action.triggered.connect(lambda: self.canvas.zoom(self.canvas.zoom_factor))
 
@@ -151,20 +156,21 @@ class MainWindow(QMainWindow):
         fit_action = tool_bar.addAction("适应")
         fit_action.triggered.connect(self.canvas.center_on_content)
 
-        save_pipeline = tool_bar.addAction("保存")
-        save_pipeline.triggered.connect(self._do_save)
+        # 保存按钮
+        save_action = tool_bar.addAction("保存")
+        save_action.triggered.connect(self._do_save)
 
         # 添加弹性空间将标签推到最右侧
         spacer = QWidget()
         spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         tool_bar.addWidget(spacer)
 
-        # 添加标签
-        label1 = QLabel("标签1")
-        label2 = QLabel("标签2")
+        # 信息标签
+        self.info_label1 = QLabel("11223")
+        self.info_label2 = QLabel("4443332211")
+        tool_bar.addWidget(self.info_label1)
+        tool_bar.addWidget(self.info_label2)
 
-        tool_bar.addWidget(label1)
-        tool_bar.addWidget(label2)
     def _create_status_bar(self):
         status_bar = QStatusBar()
         self.setStatusBar(status_bar)
@@ -204,36 +210,40 @@ class MainWindow(QMainWindow):
         for name, dock in self.dock_widgets.items():
             dock.visibilityChanged.connect(lambda visible, d=dock: self.update_dock_status(d, visible))
 
-        # 连接节点属性编辑器的信号
+        # 连接节点相关的信号
         self.canvas.node_manager.OpenNodeChanged.connect(self.update_open_node)
         self.canvas.node_manager.OpenNodeChanged.connect(self.show_properties_dock)
         self.resource_library.resource_opened.connect(self.on_resource_opened)
         self.property_editor.OpenNodeChanged.connect(self.update_open_node)
         self.property_editor.node_name_change.connect(self.canvas.node_manager.update_node_name)
         self.controller_view.OpenNodeChanged.connect(self.update_open_node)
+
+        # 连接设备设置与控制器视图的信号
+        self.device_settings_view.connectionStatusChanged.connect(self.controller_view.update_connection_status)
+        self.device_settings_view.deviceConnected.connect(self.controller_view.update_device_img)
+
     @Slot()
     def show_properties_dock(self):
+        """显示属性编辑器停靠窗口"""
         dock = self.dock_widgets.get("properties")
         if dock:
             dock.setVisible(True)
             dock.raise_()
             self.update_dock_status(dock, True)
 
-    @Slot(str,object)
-    def update_open_node(self,come_from,open_node):
-        """当节点选择改变时更新属性编辑器"""
+    @Slot(str, object)
+    def update_open_node(self, come_from, open_node):
+        """当节点选择改变时更新相关视图"""
         if not come_from:
             return
 
-        if come_from=="canvas":
+        if come_from == "canvas":
             self.property_editor.set_node(open_node)
             self.controller_view.set_node(open_node)
-        elif come_from=="property_editor":
+        elif come_from == "property_editor":
             self.controller_view.set_node(open_node)
-        elif come_from=="controller_view":
-            # self.property_editor.set_node(open_node)
+        elif come_from == "controller_view":
             self.property_editor.update_ui_from_node()
-
 
     @Slot()
     def on_properties_changed(self):
@@ -287,18 +297,12 @@ class MainWindow(QMainWindow):
         self.canvas.view.centerOn(0, 0)
         self.status_label.setText("视图已重置")
 
-    def _do_save(self, file_path):
-        """执行实际的保存操作
-
-        Args:
-            file_path: 保存的文件路径
-
-        Returns:
-            bool: 保存是否成功
-        """
+    def _do_save(self, file_path=None):
+        """执行实际的保存操作"""
         try:
             # 调用项目保存逻辑
             self.canvas.save_to_file()
+            self.status_label.setText("项目已保存")
             return True
         except Exception as e:
             QMessageBox.critical(
@@ -310,7 +314,10 @@ class MainWindow(QMainWindow):
 
     def mark_unsaved_changes(self):
         """标记有未保存的更改"""
-        pass
+        self.has_unsaved_changes = True
+        # 更新标题显示
+        if not self.windowTitle().endswith('*'):
+            self.setWindowTitle(f"{self.windowTitle()}*")
 
     @Slot()
     def undo(self):
@@ -328,104 +335,23 @@ class MainWindow(QMainWindow):
         else:
             self.status_label.setText("没有可重做的操作")
 
-    @Slot()
-    def cut_nodes(self):
-        """剪切选中的节点"""
-        selected_nodes = self.canvas.get_selected_nodes()
-        if not selected_nodes:
-            return
+    def save_project(self):
+        """保存项目"""
+        if not self.current_file_path:
+            # 如果没有设置文件路径，弹出保存对话框
+            file_path, _ = QFileDialog.getSaveFileName(
+                self,
+                "保存项目",
+                "",
+                "MaaFramework 流水线文件 (*.json)"
+            )
 
-        # 首先复制节点到剪贴板
-        self.canvas.context_menus._copy_nodes(selected_nodes)
+            if not file_path:
+                return False  # 用户取消了保存
 
-        # 然后删除节点
-        self.canvas.context_menus._delete_nodes(selected_nodes)
+            self.current_file_path = file_path
 
-        self.status_label.setText(f"已剪切 {len(selected_nodes)} 个节点")
-
-    @Slot()
-    def copy_nodes(self):
-        """复制选中的节点"""
-        selected_nodes = self.canvas.get_selected_nodes()
-        if selected_nodes:
-            self.canvas.context_menus._copy_nodes(selected_nodes)
-
-    @Slot()
-    def paste_nodes(self):
-        """粘贴节点"""
-        if hasattr(self.canvas, 'clipboard') and self.canvas.clipboard:
-            # 获取视图中心作为粘贴位置
-            center = self.canvas.view.mapToScene(self.canvas.view.viewport().rect().center())
-            self.canvas.context_menus._paste_nodes(center)
-
-    @Slot()
-    def delete_nodes(self):
-        """删除选中的节点"""
-        selected_nodes = self.canvas.get_selected_nodes()
-        if selected_nodes:
-            self.canvas.context_menus._delete_nodes(selected_nodes)
-
-    @Slot()
-    def select_all_nodes(self):
-        """选择所有节点"""
-        self.canvas.context_menus._select_all_nodes()
-
-    @Slot()
-    def align_nodes_to_grid(self):
-        """将选中的节点对齐到网格"""
-        selected_nodes = self.canvas.get_selected_nodes()
-        if selected_nodes:
-            self.canvas.context_menus._snap_to_grid(selected_nodes)
-
-    # 项目文件操作方法
-    def restore_application_state(self):
-        """从配置恢复应用程序状态。"""
-        try:
-            # 恢复窗口状态（大小、位置、停靠窗口可见性）
-            self.config_manager.restore_window_state(self)
-
-            # 恢复画布状态（仅视图缩放和位置）
-            self.config_manager.restore_canvas_state(self.canvas)
-
-            # 恢复资源库状态
-            self.config_manager.restore_resource_library_state(self.resource_library)
-
-            # 恢复控制器状态
-            self.config_manager.restore_controller_state(self.controller_view)
-
-
-
-            self.status_label.setText("已从配置恢复应用程序状态")
-        except Exception as e:
-            import traceback
-            print(f"恢复应用程序状态时出错: {str(e)}")
-            print(traceback.format_exc())
-            self.status_label.setText("恢复应用程序状态失败")
-
-    def save_application_state(self):
-        """保存当前应用程序状态到配置。"""
-        try:
-            # 保存窗口状态
-            self.config_manager.save_window_state(self)
-
-            # 保存画布状态（仅视图缩放和位置）
-            self.config_manager.save_canvas_state(self.canvas)
-
-            # 保存资源库状态
-            self.config_manager.save_resource_library_state(self.resource_library)
-
-            # 保存控制器状态
-            self.config_manager.save_controller_state(self.controller_view)
-
-            # 保存自动保存设置
-            self.config_manager.save_config()
-
-            self.status_label.setText("已保存应用程序状态到配置")
-        except Exception as e:
-            import traceback
-            print(f"保存应用程序状态时出错: {str(e)}")
-            print(traceback.format_exc())
-            self.status_label.setText("保存应用程序状态失败")
+        return self._do_save(self.current_file_path)
 
     @Slot(str)
     def on_resource_opened(self, file_path):
@@ -437,3 +363,50 @@ class MainWindow(QMainWindow):
         except Exception as e:
             self.status_label.setText(f"加载失败: {str(e)}")
             print(f"加载流水线时出错: {str(e)}")
+
+    def restore_application_state(self):
+        """从配置恢复应用程序状态"""
+        try:
+            # 恢复窗口状态
+            self.config_manager.restore_window_state(self)
+
+            # 恢复画布状态
+            self.config_manager.restore_canvas_state(self.canvas)
+
+            # 恢复资源库状态
+            self.config_manager.restore_resource_library_state(self.resource_library)
+
+            # 恢复控制器状态
+            self.config_manager.restore_controller_state(self.device_settings_view)
+
+            self.status_label.setText("已从配置恢复应用程序状态")
+        except Exception as e:
+            import traceback
+            print(f"恢复应用程序状态时出错: {str(e)}")
+            print(traceback.format_exc())
+            self.status_label.setText("恢复应用程序状态失败")
+
+    def save_application_state(self):
+        """保存当前应用程序状态到配置"""
+        try:
+            # 保存窗口状态
+            self.config_manager.save_window_state(self)
+
+            # 保存画布状态
+            self.config_manager.save_canvas_state(self.canvas)
+
+            # 保存资源库状态
+            self.config_manager.save_resource_library_state(self.resource_library)
+
+            # 保存控制器状态
+            self.config_manager.save_controller_state(self.device_settings_view)
+
+            # 保存配置
+            self.config_manager.save_config()
+
+            self.status_label.setText("已保存应用程序状态到配置")
+        except Exception as e:
+            import traceback
+            print(f"保存应用程序状态时出错: {str(e)}")
+            print(traceback.format_exc())
+            self.status_label.setText("保存应用程序状态失败")

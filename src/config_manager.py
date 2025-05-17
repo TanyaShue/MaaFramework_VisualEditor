@@ -50,7 +50,8 @@ class ConfigManager:
                 "properties": {"visible": True},
                 "resource_library": {"visible": True},
                 "controller": {"visible": True},
-                "debugger_view": {"visible": True}
+                "debugger_view": {"visible": True},
+                "device_settings": {"visible": True}
             },
             "canvas": {
                 "zoom": 1.0,
