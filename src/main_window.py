@@ -37,8 +37,7 @@ class MainWindow(QMainWindow):
         # 创建并添加停靠窗口
         self._create_docks()
 
-        # 创建菜单、工具栏和状态栏
-        self._create_menu_bar()
+        # 创建工具栏和状态栏
         self._create_tool_bar()
         self._create_status_bar()
 
@@ -131,97 +130,9 @@ class MainWindow(QMainWindow):
         # 确保属性编辑器在前面
         properties_dock.raise_()
 
-
-    def _create_menu_bar(self):
-        menu_bar = self.menuBar()
-
-        # 编辑菜单
-        edit_menu = menu_bar.addMenu("编辑")
-
-        undo_action = edit_menu.addAction("撤销")
-        undo_action.setShortcut(QKeySequence.Undo)
-        undo_action.triggered.connect(self.undo)
-
-        redo_action = edit_menu.addAction("重做")
-        redo_action.setShortcut(QKeySequence.Redo)
-        redo_action.triggered.connect(self.redo)
-
-        edit_menu.addSeparator()
-
-        cut_action = edit_menu.addAction("剪切")
-        cut_action.setShortcut(QKeySequence.Cut)
-        cut_action.triggered.connect(self.cut_nodes)
-
-        copy_action = edit_menu.addAction("复制")
-        copy_action.setShortcut(QKeySequence.Copy)
-        copy_action.triggered.connect(self.copy_nodes)
-
-        paste_action = edit_menu.addAction("粘贴")
-        paste_action.setShortcut(QKeySequence.Paste)
-        paste_action.triggered.connect(self.paste_nodes)
-
-        delete_action = edit_menu.addAction("删除")
-        delete_action.setShortcut(QKeySequence.Delete)
-        delete_action.triggered.connect(self.delete_nodes)
-
-        edit_menu.addSeparator()
-
-        select_all_action = edit_menu.addAction("全选")
-        select_all_action.setShortcut(QKeySequence.SelectAll)
-        select_all_action.triggered.connect(self.select_all_nodes)
-
-        # 视图菜单
-        view_menu = menu_bar.addMenu("视图")
-
-        zoom_in_action = view_menu.addAction("放大")
-        zoom_in_action.setShortcut(QKeySequence.ZoomIn)
-        zoom_in_action.triggered.connect(lambda: self.canvas.zoom(self.canvas.zoom_factor))
-
-        zoom_out_action = view_menu.addAction("缩小")
-        zoom_out_action.setShortcut(QKeySequence.ZoomOut)
-        zoom_out_action.triggered.connect(lambda: self.canvas.zoom(1 / self.canvas.zoom_factor))
-
-        fit_action = view_menu.addAction("适应窗口")
-        fit_action.triggered.connect(self.canvas.center_on_content)
-
-        reset_view_action = view_menu.addAction("重置视图")
-        reset_view_action.triggered.connect(self.reset_view)
-
-        save_pipeline = view_menu.addAction("保存")
-        save_pipeline.triggered.connect(self._do_save)
-        # 添加视图菜单项
-        view_menu.addSeparator()
-
-        # 为每个停靠窗口添加一个切换动作
-        for name, dock in self.dock_widgets.items():
-            action = view_menu.addAction(f"显示/隐藏{dock.windowTitle()}")
-            action.setCheckable(True)
-            action.setChecked(True)
-            action.toggled.connect(lambda checked, d=dock: d.setVisible(checked))
-
-        # 添加重置所有视图的动作
-        view_menu.addSeparator()
-        reset_action = view_menu.addAction("重置所有视图")
-        reset_action.triggered.connect(self.reset_dock_layout)
-
-        # 节点菜单
-        node_menu = menu_bar.addMenu("节点")
-
-        align_grid_action = node_menu.addAction("对齐到网格")
-        align_grid_action.triggered.connect(self.align_nodes_to_grid)
-
-        # 使用右键菜单中的其他节点操作来扩展这里
-        maafw_menu = menu_bar.addMenu("MAAFW")
-        maafw_menu.addAction("连接控制器")
-        maafw_menu.addAction("断开连接")
-        maafw_menu.addAction("执行任务")
-        maafw_menu.addAction("停止任务")
-
     def _create_tool_bar(self):
         tool_bar = QToolBar("主工具栏")
         self.addToolBar(tool_bar)
-
-        tool_bar.addSeparator()
 
         undo_action = tool_bar.addAction("撤销")
         undo_action.triggered.connect(self.undo)
