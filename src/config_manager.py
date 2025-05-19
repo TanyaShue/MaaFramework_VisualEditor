@@ -271,7 +271,6 @@ class ConfigManager:
         except Exception as e:
             print(f"恢复控制器状态时出错: {str(e)}")
 
-
     def save_task_file_state(self, file_path):
         """保存当前打开的任务文件路径。"""
         self.config["recent_files"]["current_task_file"] = file_path
@@ -308,4 +307,6 @@ class ConfigManager:
     def get_last_task_file(self):
         """Get the last opened task file path."""
         return self.config["recent_files"]["current_opened_file"]
+
+
 config_manager = ConfigManager()

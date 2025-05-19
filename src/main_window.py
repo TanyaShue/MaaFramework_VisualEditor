@@ -379,6 +379,7 @@ class MainWindow(QMainWindow):
             # 恢复控制器状态
             self.config_manager.restore_controller_state(self.device_settings_view)
 
+
             self.status_label.setText("已从配置恢复应用程序状态")
         except Exception as e:
             import traceback
