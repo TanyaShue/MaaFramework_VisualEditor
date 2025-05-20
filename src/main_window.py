@@ -1,13 +1,15 @@
-from PySide6.QtCore import Qt, Slot
-from PySide6.QtGui import QAction, QKeySequence
+from PySide6.QtCore import Qt, Slot, QPoint, QTimer, Signal
+from PySide6.QtGui import QAction, QKeySequence, QPalette, QColor
 from PySide6.QtWidgets import (QMainWindow, QDockWidget, QStatusBar, QToolBar,
                                QWidget, QLabel, QPushButton, QHBoxLayout,
-                               QMessageBox, QFileDialog, QSizePolicy)
+                               QMessageBox, QFileDialog, QSizePolicy, QToolTip)
+from qasync import asyncSlot
 
 from src.views.node_canvas import NodeCanvas
 from src.views.node_library import NodeLibrary
 from src.views.node_properties_editor import NodePropertiesEditor
 from .config_manager import config_manager
+from .maafw import maafw
 from .views.controller_setting import DeviceSettingsView
 from .views.controller_view import ControllerView
 from .views.debug_view import DebuggerView
@@ -15,6 +17,7 @@ from .views.resource_library import ResourceLibrary
 
 
 class MainWindow(QMainWindow):
+    connet_maafw =Signal()
     def __init__(self):
         super().__init__()
         self.setWindowTitle("MaaFramework Visual Editor")
@@ -58,6 +61,7 @@ class MainWindow(QMainWindow):
 
         # 恢复应用程序状态
         self.restore_application_state()
+        self.connet_maafw.emit()
 
     def closeEvent(self, event):
         """处理窗口关闭事件。"""
@@ -165,11 +169,104 @@ class MainWindow(QMainWindow):
         spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         tool_bar.addWidget(spacer)
 
-        # 信息标签
-        self.info_label1 = QLabel("11223")
-        self.info_label2 = QLabel("4443332211")
-        tool_bar.addWidget(self.info_label1)
-        tool_bar.addWidget(self.info_label2)
+        # 创建控制器连接状态按钮
+        self.controller_status_btn = QPushButton("控制器")
+        self.controller_status_btn.setFixedWidth(80)
+        self.controller_status_btn.clicked.connect(self.controller_connection)
+        self.set_button_status(self.controller_status_btn, False)  # 默认状态设为未连接
+
+        # 创建资源连接状态按钮
+        self.resource_status_btn = QPushButton("资源")
+        self.resource_status_btn.setFixedWidth(80)
+        self.resource_status_btn.clicked.connect(self.check_resource_connection)
+        self.set_button_status(self.resource_status_btn, False)  # 默认状态设为未连接
+
+        # 创建agent连接状态按钮
+        self.agent_status_btn = QPushButton("Agent")
+        self.agent_status_btn.setFixedWidth(80)
+        self.agent_status_btn.clicked.connect(self.check_agent_connection)
+        self.set_button_status(self.agent_status_btn, False)  # 默认状态设为未连接
+
+        # 添加到工具栏
+        tool_bar.addWidget(self.controller_status_btn)
+        tool_bar.addWidget(self.resource_status_btn)
+        tool_bar.addWidget(self.agent_status_btn)
+
+
+    @asyncSlot()
+    async def restore_maafw_state(self):
+        success_connect= await self.device_settings_view.connect_device()
+        self.set_button_status(self.controller_status_btn, success_connect)
+        success_res=await self.device_settings_view.connect_mfw_res()
+        self.set_button_status(self.resource_status_btn, success_res)
+        success_agent=await self.device_settings_view.connect_mfw_agent()
+        self.set_button_status(self.agent_status_btn, success_agent)
+
+    # 定义设置按钮状态的方法
+    def set_button_status(self, button, is_connected):
+        status_color = QColor(0, 180, 0) if is_connected else QColor(255, 0, 0)  # 绿色或红色
+        status_text = "已连接" if is_connected else "未连接"
+
+        # 设置按钮文本
+        button_text = "● " + button.text().split(" ")[-1]
+        button.setText(button_text)
+
+        # 设置按钮颜色
+        palette = button.palette()
+        palette.setColor(QPalette.ButtonText, status_color)
+        button.setPalette(palette)
+
+        # 设置按钮提示文本
+        button.setToolTip(f"{button.text().split(' ')[-1]}状态: {status_text}")
+
+    # 检查控制器连接的方法
+    @asyncSlot()
+    async def controller_connection(self):
+        # 调用实际的控制器连接检查方法
+        is_connected = await self.device_settings_view.connect_mfw_agent()
+
+        # 更新按钮状态
+        self.set_button_status(self.controller_status_btn, is_connected)
+
+        # 如果连接失败，显示提示
+        if not is_connected:
+            self.show_connection_error("控制器连接失败", self.controller_status_btn)
+
+    # 检查资源连接的方法
+    def check_resource_connection(self):
+        # 调用实际的资源连接检查方法
+        is_connected = False  # 这应该是你已有的或将要实现的方法
+
+        # 更新按钮状态
+        self.set_button_status(self.resource_status_btn, is_connected)
+
+        # 如果连接失败，显示提示
+        if not is_connected:
+            self.show_connection_error("资源连接失败", self.resource_status_btn)
+
+    # 检查agent连接的方法
+    @asyncSlot()
+    async def check_agent_connection(self):
+        # 调用实际的agent连接检查方法
+        is_connected = await self.device_settings_view.connect_device()  # 这应该是你已有的或将要实现的方法
+
+        # 更新按钮状态
+        self.set_button_status(self.agent_status_btn, is_connected)
+
+        # 如果连接失败，显示提示
+        if not is_connected:
+            self.show_connection_error("Agent连接失败", self.agent_status_btn)
+
+    # 显示错误提示的方法
+    def show_connection_error(self, message, button):
+        # 计算按钮上方的位置
+        pos = button.mapToGlobal(QPoint(button.width() // 2, -10))
+
+        # 显示提示消息在按钮上方
+        QToolTip.showText(pos, message)
+
+        # 3秒后隐藏提示
+        QTimer.singleShot(3000, lambda: QToolTip.hideText())
 
     def _create_status_bar(self):
         status_bar = QStatusBar()
@@ -217,6 +314,7 @@ class MainWindow(QMainWindow):
         self.property_editor.OpenNodeChanged.connect(self.update_open_node)
         self.property_editor.node_name_change.connect(self.canvas.node_manager.update_node_name)
         self.controller_view.OpenNodeChanged.connect(self.update_open_node)
+        self.connet_maafw.connect(self.restore_maafw_state)
 
         # 连接设备设置与控制器视图的信号
         self.device_settings_view.connectionStatusChanged.connect(self.controller_view.update_connection_status)

@@ -1,8 +1,12 @@
+import json
 import os
+from pathlib import Path
+
 from PySide6.QtCore import Qt, Signal, QThread
+from PySide6.QtGui import QCursor
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                                QFormLayout, QLineEdit, QPushButton, QComboBox,
-                               QGroupBox, QScrollArea, QGridLayout)
+                               QGroupBox, QScrollArea, QGridLayout, QFrame, QMessageBox)
 from maa.toolkit import Toolkit
 from qasync import asyncSlot
 
@@ -53,31 +57,30 @@ class DeviceSettingsView(QWidget):
         """设置UI界面"""
         # 主布局
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(10, 10, 10, 10)
-        main_layout.setSpacing(15)
+        main_layout.setContentsMargins(15, 15, 15, 15)
+        main_layout.setSpacing(20)
 
         # 创建滚动区域
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
         scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        scroll_area.setFrameShape(QFrame.NoFrame)  # 移除边框,使界面更加整洁
 
         # 创建内容小部件
         content_widget = QWidget()
         content_layout = QVBoxLayout(content_widget)
-        content_layout.setContentsMargins(5, 5, 5, 5)
-        content_layout.setSpacing(15)
+        content_layout.setContentsMargins(10, 10, 10, 10)
+        content_layout.setSpacing(20)
 
-        # 标题
-        title_label = QLabel("设备设置")
-        title_label.setStyleSheet("font-weight: bold; font-size: 16px;")
-        content_layout.addWidget(title_label)
-
-        # 合并后的设备类型和搜索组
+        # 合并后的设备类型和搜索组 - 美化边框和间距
         search_group = QGroupBox("设备搜索与类型")
+        search_group.setStyleSheet(
+            "QGroupBox {border: 1px solid #bdc3c7; border-radius: 5px; margin-top: 10px; font-weight: bold;} "
+            "QGroupBox::title {subcontrol-origin: margin; left: 10px; padding: 0 5px;}")
         grid_layout = QGridLayout(search_group)
-        grid_layout.setContentsMargins(5, 5, 5, 5)
-        grid_layout.setSpacing(10)
+        grid_layout.setContentsMargins(15, 20, 15, 15)
+        grid_layout.setSpacing(12)
 
         # 第一行: 控制器类型标签和下拉框与搜索按钮和状态在同一行
         type_label = QLabel("控制器类型:")
@@ -85,6 +88,7 @@ class DeviceSettingsView(QWidget):
         grid_layout.addWidget(type_label, 0, 0)
 
         self.device_type_combo = QComboBox()
+        self.device_type_combo.setStyleSheet("padding: 5px;")
         self.device_type_combo.addItem("ADB设备", "ADB")
         self.device_type_combo.addItem("Win32窗口", "WIN32")
         self.device_type_combo.currentIndexChanged.connect(self.device_type_changed)
@@ -92,10 +96,13 @@ class DeviceSettingsView(QWidget):
 
         # 第一行右侧: 搜索按钮和状态
         self.search_btn = QPushButton("搜索设备")
+        self.search_btn.setStyleSheet("padding: 5px; background-color: #3498db; color: white; border-radius: 4px;")
         self.search_btn.clicked.connect(self.search_devices)
+        self.search_btn.setCursor(QCursor(Qt.PointingHandCursor))  # 鼠标悬停时显示手型光标
         grid_layout.addWidget(self.search_btn, 0, 2)
 
         self.search_status = QLabel("未搜索")
+        self.search_status.setStyleSheet("color: #7f8c8d; font-style: italic;")
         grid_layout.addWidget(self.search_status, 0, 3)
 
         # 第二行: 设备标签和下拉框
@@ -104,16 +111,21 @@ class DeviceSettingsView(QWidget):
         grid_layout.addWidget(device_label, 1, 0)
 
         self.device_combo = QComboBox()
+        self.device_combo.setStyleSheet("padding: 5px;")
         self.device_combo.setMinimumWidth(200)
         self.device_combo.currentIndexChanged.connect(self.device_selected)
         grid_layout.addWidget(self.device_combo, 1, 1, 1, 3)  # 跨越3列
 
         content_layout.addWidget(search_group)
 
-        # 设备配置组
+        # 设备配置组 - 美化边框和间距
         self.config_group = QGroupBox("设备配置")
+        self.config_group.setStyleSheet(
+            "QGroupBox {border: 1px solid #bdc3c7; border-radius: 5px; margin-top: 10px; font-weight: bold;} "
+            "QGroupBox::title {subcontrol-origin: margin; left: 10px; padding: 0 5px;}")
         cfg_layout = QVBoxLayout(self.config_group)
-        cfg_layout.setContentsMargins(5, 5, 5, 5)
+        cfg_layout.setContentsMargins(15, 20, 15, 15)
+        cfg_layout.setSpacing(15)
 
         # 配置栈
         self.controller_stack = QComboBox()
@@ -121,13 +133,19 @@ class DeviceSettingsView(QWidget):
 
         # ADB配置页面
         self.adb_widget = QGroupBox("ADB设置")
+        self.adb_widget.setStyleSheet("QGroupBox {border: 1px solid #bdc3c7; border-radius: 5px; margin-top: 5px;}")
         self.adb_widget.setVisible(False)
         adb_form = QFormLayout(self.adb_widget)
         adb_form.setLabelAlignment(Qt.AlignRight)
+        adb_form.setSpacing(10)
+        adb_form.setContentsMargins(10, 15, 10, 10)
 
         self.adb_path_edit = QLineEdit()
+        self.adb_path_edit.setStyleSheet("padding: 5px;")
         self.adb_address_edit = QLineEdit()
+        self.adb_address_edit.setStyleSheet("padding: 5px;")
         self.config_edit = QLineEdit()
+        self.config_edit.setStyleSheet("padding: 5px;")
 
         adb_form.addRow("ADB 路径:", self.adb_path_edit)
         adb_form.addRow("ADB 地址:", self.adb_address_edit)
@@ -135,16 +153,23 @@ class DeviceSettingsView(QWidget):
 
         # Win32配置页面
         self.win32_widget = QGroupBox("Win32设置")
+        self.win32_widget.setStyleSheet("QGroupBox {border: 1px solid #bdc3c7; border-radius: 5px; margin-top: 5px;}")
         self.win32_widget.setVisible(False)
         win32_form = QFormLayout(self.win32_widget)
         win32_form.setLabelAlignment(Qt.AlignRight)
+        win32_form.setSpacing(10)
+        win32_form.setContentsMargins(10, 15, 10, 10)
 
         self.hwnd_edit = QLineEdit()
+        self.hwnd_edit.setStyleSheet("padding: 5px;")
+
         self.input_method_combo = QComboBox()
+        self.input_method_combo.setStyleSheet("padding: 5px;")
         self.input_method_combo.addItem("Seize", 1)
         self.input_method_combo.addItem("SendMessage", 2)
 
         self.screenshot_method_combo = QComboBox()
+        self.screenshot_method_combo.setStyleSheet("padding: 5px;")
         self.screenshot_method_combo.addItem("GDI", 1)
         self.screenshot_method_combo.addItem("FramePool", 2)
         self.screenshot_method_combo.addItem("DXGI_DesktopDup", 3)
@@ -158,25 +183,79 @@ class DeviceSettingsView(QWidget):
 
         content_layout.addWidget(self.config_group)
 
-        # 连接/断开按钮
-        btn_layout = QVBoxLayout()
-        btn_layout.setSpacing(5)
+        # 资源连接组 - 添加GroupBox使其更加美观
+        resource_agent_group = QGroupBox("资源与Agent连接")
+        resource_agent_group.setStyleSheet(
+            "QGroupBox {border: 1px solid #bdc3c7; border-radius: 5px; margin-top: 10px; font-weight: bold;} "
+            "QGroupBox::title {subcontrol-origin: margin; left: 10px; padding: 0 5px;}")
+        resource_agent_layout = QVBoxLayout(resource_agent_group)
+        resource_agent_layout.setContentsMargins(15, 20, 15, 15)
+        resource_agent_layout.setSpacing(15)
+
+        # 创建资源连接组 - 水平布局
+        resource_layout = QHBoxLayout()
+        resource_layout.setSpacing(10)
+
+        self.resource_path_edit = QLineEdit()
+        self.resource_path_edit.setStyleSheet("padding: 5px;")
+        self.resource_path_edit.setPlaceholderText("资源路径")
+
+        btn_connect_res = QPushButton("连接资源")
+        btn_connect_res.setStyleSheet("padding: 5px; background-color: #2ecc71; color: white; border-radius: 4px;")
+        btn_connect_res.setCursor(QCursor(Qt.PointingHandCursor))
+        btn_connect_res.clicked.connect(self.connect_mfw_res)
+
+        resource_layout.addWidget(self.resource_path_edit, 3)  # 3:1的比例
+        resource_layout.addWidget(btn_connect_res, 1)
+
+        # 创建agent连接组 - 水平布局
+        agent_layout = QHBoxLayout()
+        agent_layout.setSpacing(10)
+
+        self.agent_path_edit = QLineEdit()
+        self.agent_path_edit.setStyleSheet("padding: 5px;")
+        self.agent_path_edit.setPlaceholderText("Agent_id")
+
+        btn_connect_agent = QPushButton("连接Agent")
+        btn_connect_agent.setStyleSheet("padding: 5px; background-color: #2ecc71; color: white; border-radius: 4px;")
+        btn_connect_agent.setCursor(QCursor(Qt.PointingHandCursor))
+        btn_connect_agent.clicked.connect(self.connect_mfw_agent)
+
+        agent_layout.addWidget(self.agent_path_edit, 3)  # 3:1的比例
+        agent_layout.addWidget(btn_connect_agent, 1)
+
+        # 添加到资源和Agent组
+        resource_agent_layout.addLayout(resource_layout)
+        resource_agent_layout.addLayout(agent_layout)
+
+        content_layout.addWidget(resource_agent_group)
+
+        # 主要连接按钮组 - 放置在最下方
+        btn_group = QGroupBox()
+        btn_group.setStyleSheet("QGroupBox {border: none;}")
+        btn_layout = QHBoxLayout(btn_group)
+        btn_layout.setContentsMargins(0, 10, 0, 0)
+        btn_layout.setSpacing(15)
 
         btn_connect = QPushButton("连接设备")
+        btn_connect.setMinimumHeight(40)
+        btn_connect.setStyleSheet(
+            "background-color: #3498db; color: white; font-weight: bold; border-radius: 5px; font-size: 14px;")
+        btn_connect.setCursor(QCursor(Qt.PointingHandCursor))
         btn_connect.clicked.connect(self.connect_device)
 
         btn_disconnect = QPushButton("断开连接")
+        btn_disconnect.setMinimumHeight(40)
+        btn_disconnect.setStyleSheet(
+            "background-color: #e74c3c; color: white; font-weight: bold; border-radius: 5px; font-size: 14px;")
+        btn_disconnect.setCursor(QCursor(Qt.PointingHandCursor))
         btn_disconnect.clicked.connect(self.disconnect_device)
-
-        btn_connect_res = QPushButton("连接资源")
-        btn_connect_res.clicked.connect(self.connect_mfw_res)
 
         btn_layout.addWidget(btn_connect)
         btn_layout.addWidget(btn_disconnect)
-        btn_layout.addWidget(btn_connect_res)
 
-        content_layout.addLayout(btn_layout)
-        content_layout.addStretch()
+        content_layout.addWidget(btn_group)
+        content_layout.addStretch(1)
 
         # 设置滚动区域
         scroll_area.setWidget(content_widget)
@@ -264,19 +343,33 @@ class DeviceSettingsView(QWidget):
                     self.hwnd_edit.setText(str(device.hwnd))
 
     @asyncSlot()
-    async def connect_device(self):
+    async def connect_device(self) ->bool:
         """连接到指定设备"""
         try:
             device_type = self.device_type_combo.currentData()
             if device_type == "ADB":
                 address = self.adb_address_edit.text()
                 adb_path = self.adb_path_edit.text()
-                config_text = self.config_edit.text()
+                config_text = str(self.config_edit.text())
+                # 将config_text转换为字典
                 if config_text == "":
-                    config_text = {}
-
+                    config_dict = {}
+                else:
+                    try:
+                        # 尝试解析为JSON格式的字典
+                        config_dict = json.loads(config_text)
+                        if not isinstance(config_dict, dict):
+                            raise ValueError("配置必须是有效的JSON对象格式")
+                    except json.JSONDecodeError:
+                        print("错误: 配置必须是有效的JSON格式，例如: {\"key\": \"value\"}")
+                        QMessageBox.critical(self, "配置错误", "配置必须是有效的JSON格式，例如: {\"key\": \"value\"}")
+                        return False
+                    except ValueError as e:
+                        print(f"错误: {str(e)}")
+                        QMessageBox.critical(self, "配置错误", str(e))
+                        return False
                 # 连接到ADB设备
-                connected, error = await maafw.connect_adb(adb_path, address, config_text)
+                connected, error = await maafw.connect_adb(adb_path, address, config_dict)
                 if connected:
                     print(f"成功连接到ADB设备: {address}")
                     self.is_connected = True
@@ -302,32 +395,50 @@ class DeviceSettingsView(QWidget):
 
             if self.is_connected:
                 self.deviceConnected.emit()
-
+                return True
+            return False
         except Exception as e:
             print(f"连接设备时发生错误: {str(e)}")
             self.is_connected = False
             self.connectionStatusChanged.emit(False)
+            return False
 
     @asyncSlot()
-    async def connect_mfw_res(self):
+    async def connect_mfw_res(self) ->bool:
         """连接MAA资源"""
         try:
-            from pathlib import Path
             res_path = Path(config_manager.config["recent_files"]["base_resource_path"])
             success, error = await maafw.load_resource([res_path])
 
             if success:
                 print(f"成功连接资源: {res_path}")
+                return True
             else:
                 print(f"连接资源失败: {error}")
-            agent_id=await maafw.create_agent("maa-agent-server")
-            await maafw.connect_agent("maa-agent-server")
-            if agent_id:
-                print(f"agent_id: {agent_id}")
-
+            # agent_id=await maafw.create_agent("maa-agent-server")
+            # await maafw.connect_agent("maa-agent-server")
+            # if agent_id:
+            #     print(f"agent_id: {agent_id}")
+            return False
         except Exception as e:
             print(f"连接资源时发生错误: {str(e)}")
+        return False
 
+    @asyncSlot()
+    async def connect_mfw_agent(self) ->bool:
+        """连接MAA资源"""
+        try:
+            agent_id_input = self.agent_path_edit.text().strip()
+            agent_id=await maafw.create_agent(agent_id_input)
+            success=await maafw.connect_agent(agent_id)
+            if success:
+                print(f"agent连接成功 agent_id: {agent_id}")
+            return False
+        except Exception as e:
+            print(f"连接agent时发生错误: {str(e)}")
+        return False
+
+    @asyncSlot()
     def disconnect_device(self):
         """断开当前设备连接"""
         # 断开连接逻辑

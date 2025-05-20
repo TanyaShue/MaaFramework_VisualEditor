@@ -261,13 +261,6 @@ class ConfigManager:
                         if controller_view.screenshot_method_combo.itemData(i) == screenshot_method:
                             controller_view.screenshot_method_combo.setCurrentIndex(i)
                             break
-
-            # 如果需要，重新连接
-            if (hasattr(controller_view, 'is_connected') and
-                    self.config["controller"]["connected"] and
-                    hasattr(controller_view, 'connect_device')):
-                controller_view.connect_device()
-
         except Exception as e:
             print(f"恢复控制器状态时出错: {str(e)}")
 
