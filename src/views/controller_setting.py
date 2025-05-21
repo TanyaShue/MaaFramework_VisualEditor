@@ -212,16 +212,16 @@ class DeviceSettingsView(QWidget):
         agent_layout = QHBoxLayout()
         agent_layout.setSpacing(10)
 
-        self.agent_path_edit = QLineEdit()
-        self.agent_path_edit.setStyleSheet("padding: 5px;")
-        self.agent_path_edit.setPlaceholderText("Agent_id")
+        self.agent_id_edit = QLineEdit()
+        self.agent_id_edit.setStyleSheet("padding: 5px;")
+        self.agent_id_edit.setPlaceholderText("Agent_id")
 
         btn_connect_agent = QPushButton("连接Agent")
         btn_connect_agent.setStyleSheet("padding: 5px; background-color: #2ecc71; color: white; border-radius: 4px;")
         btn_connect_agent.setCursor(QCursor(Qt.PointingHandCursor))
         btn_connect_agent.clicked.connect(self.connect_mfw_agent)
 
-        agent_layout.addWidget(self.agent_path_edit, 3)  # 3:1的比例
+        agent_layout.addWidget(self.agent_id_edit, 3)  # 3:1的比例
         agent_layout.addWidget(btn_connect_agent, 1)
 
         # 添加到资源和Agent组
@@ -428,11 +428,14 @@ class DeviceSettingsView(QWidget):
     async def connect_mfw_agent(self) ->bool:
         """连接MAA资源"""
         try:
-            agent_id_input = self.agent_path_edit.text().strip()
+            self.agent_id=self.agent_id_edit.text().strip()
+            agent_id_input = self.agent_id_edit.text().strip()
             agent_id=await maafw.create_agent(agent_id_input)
+            print(f"当前agentID{agent_id}")
             success=await maafw.connect_agent(agent_id)
             if success:
                 print(f"agent连接成功 agent_id: {agent_id}")
+                return True
             return False
         except Exception as e:
             print(f"连接agent时发生错误: {str(e)}")

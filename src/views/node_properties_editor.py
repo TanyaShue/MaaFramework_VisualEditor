@@ -117,7 +117,8 @@ class NodePropertiesEditor(QWidget):
             "threshold": 0.3
         },
         "ColorMatch": {
-            "count": 1
+            "count": 1,
+            "method":4
         }
         # 可以添加更多算法特定的默认值
     }
@@ -339,11 +340,11 @@ class NodePropertiesEditor(QWidget):
             "is_sub": PropertyConfig("QCheckBox", "是否子节点:",
                                      default=self.PROPERTY_DEFAULTS.get("is_sub")),
             "rate_limit": PropertyConfig("QSpinBox", "识别速率(ms):",
-                                         range=(0, 100000),
+                                         range=(0, 999999999),
                                          step=100,
                                          default=self.PROPERTY_DEFAULTS.get("rate_limit")),
             "timeout": PropertyConfig("QSpinBox", "超时时间(ms):",
-                                      range=(0, 300000),
+                                      range=(0, 999999999),
                                       step=1000,
                                       default=self.PROPERTY_DEFAULTS.get("timeout")),
             "inverse": PropertyConfig("QCheckBox", "反转识别结果:",

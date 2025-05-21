@@ -70,7 +70,8 @@ class ConfigManager:
                 "adb_path": "",
                 "input_method": 1,
                 "screenshot_method": 1,
-                "connected": False
+                "connected": False,
+                "agent_id":"maa-agent-server"
             }
         }
 
@@ -217,12 +218,13 @@ class ConfigManager:
             # 保存连接状态
             if hasattr(controller_view, 'is_connected'):
                 self.config["controller"]["connected"] = controller_view.is_connected
+            # 保存连接状态
+            if hasattr(controller_view, 'agent_id'):
+                self.config["controller"]["agent_id"] = controller_view.agent_id
 
-            # 保存当前任务文件路径
-            if hasattr(controller_view, 'current_task_file'):
-                self.config["recent_files"]["current_task_file"] = controller_view.current_task_file
 
             self.save_config()
+            print(self.config["controller"])
         except Exception as e:
             print(f"保存控制器状态时出错: {str(e)}")
             import traceback
@@ -238,6 +240,10 @@ class ConfigManager:
                     if controller_view.device_type_combo.itemData(i) == device_type:
                         controller_view.device_type_combo.setCurrentIndex(i)
                         break
+            if hasattr(controller_view, 'agent_id_edit'):
+                agent_id = self.config["controller"]["agent_id"]
+                controller_view.agent_id_edit.setText(agent_id)
+
 
             # 根据设备类型设置相应的地址信息
             device_type = self.config["controller"]["device_type"]

@@ -107,7 +107,7 @@ class MaaFW:
             self.agent = AgentClient()
             self.agent.bind(self.resource)
 
-        if not self.agent_identifier:
+        if identifier:
             self.agent_identifier = self.agent.create_socket(identifier)
             if not self.agent_identifier:
                 raise RuntimeError("Failed to create agent")
@@ -116,11 +116,19 @@ class MaaFW:
 
     @asyncify
     def connect_agent(self, identifier: str) -> Tuple[bool, Optional[str]]:
+        if identifier and self.agent_identifier!=identifier:
+            self.agent.disconnect()
+            self.agent_identifier=identifier
 
-        ret = self.agent.connect()
-        if not ret:
-            return (None, "Failed to connect agent")
-
+            ret = self.agent.connect()
+            if not ret:
+                print(f"Failed to connect {identifier}")
+                return (None, "Failed to connect agent")
+        else:
+            ret = self.agent.connect()
+            if not ret:
+                print(f"Failed to connect {identifier}")
+                return (None, "Failed to connect agent")
         return (True, None)
 
     def run_task(

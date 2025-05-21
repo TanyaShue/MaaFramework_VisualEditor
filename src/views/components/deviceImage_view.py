@@ -15,92 +15,31 @@ from src.config_manager import config_manager
 class SelectionRect(QGraphicsRectItem):
     """Selection rectangle with info display"""
 
-    def __init__(self):
+    def __init__(self, is_secondary=False):
         super().__init__()
-        self.setPen(QPen(QColor(255, 0, 0), 2, Qt.SolidLine))
-        self.setBrush(QBrush(QColor(255, 0, 0, 40)))
+        # 设置不同的颜色，主选择框为红色，次选择框为绿色
+        if is_secondary:
+            color = QColor(0, 255, 0, 40)  # Green with alpha
+            pen_color = QColor(0, 255, 0)  # Green for pen
+        else:
+            color = QColor(255, 0, 0, 40)  # Red with alpha
+            pen_color = QColor(255, 0, 0)  # Red for pen
+
+        self.setPen(QPen(pen_color, 2, Qt.SolidLine))
+        self.setBrush(QBrush(color))
         self.setZValue(100)  # Ensure it's on top
         self.setFlag(QGraphicsItem.ItemIsMovable, False)
         # Add a flag to check if the object is valid
         self.is_valid = True
+        # 标记是否为次选择框
+        self.is_secondary = is_secondary
 
     def paint(self, painter, option, widget):
         """Customize the paint to add info overlay"""
         # Paint the standard rectangle
         super().paint(painter, option, widget)
 
-        # Get the normalized rectangle
-        rect = self.rect().normalized()
-
-        # Calculate the absolute coordinates in scene
-        scene_rect = self.sceneTransform().mapRect(rect)
-
-        # Check if we're in a valid view
-        if widget and widget.parentWidget():
-            view = widget.parentWidget()
-            if isinstance(view, DeviceImageView):
-                pixmap_item = view.pixmap_item
-
-                if pixmap_item:
-                    pixmap_rect = pixmap_item.boundingRect()
-                    if not pixmap_rect.isEmpty():
-                        # 计算ROI (x, y, w, h)
-                        pixmap_scene_pos = pixmap_item.scenePos()
-                        roi_x = int(scene_rect.left() - pixmap_scene_pos.x())
-                        roi_y = int(scene_rect.top() - pixmap_scene_pos.y())
-                        roi_w = int(scene_rect.width())
-                        roi_h = int(scene_rect.height())
-
-                        # Get zoom factor directly from view's method for consistency
-                        zoom_factor = view.get_zoom_factor()
-                        zoom = int(zoom_factor * 100)  # Convert to percentage and ensure integer value
-
-                        # Draw info panel
-                        info_width = 180
-                        info_height = 80
-                        info_margin = 10
-
-                        # Save painter state before any transformations
-                        painter.save()
-
-                        # Get the viewport
-                        viewport = view.viewport()
-
-                        # Reset all transformations to paint directly in viewport coordinates
-                        painter.resetTransform()
-
-                        # Calculate position in the top-right corner of the viewport
-                        # This ensures it stays fixed regardless of panning
-                        info_x = viewport.width() - info_width - info_margin
-                        info_y = info_margin
-
-                        # Use QPainter's device coordinate system
-                        device_rect = painter.viewport()
-                        painter.setWindow(device_rect)
-
-                        # Translate to viewport coordinates
-                        painter.translate(viewport.mapTo(widget, QPoint(0, 0)))
-
-                        # Draw info background
-                        painter.setPen(Qt.NoPen)
-                        painter.setBrush(QBrush(QColor(0, 0, 0, 150)))
-                        painter.drawRoundedRect(info_x, info_y, info_width, info_height, 5, 5)
-
-                        # Draw info text
-                        painter.setPen(QPen(QColor(255, 255, 255)))
-                        painter.setFont(QFont("Arial", 9))
-
-                        # 更新信息面板，只显示ROI信息
-                        text = (f"选择区域信息:\n"
-                                f"起点: ({int(scene_rect.x())}, {int(scene_rect.y())})\n"
-                                f"终点: ({int(scene_rect.right())}, {int(scene_rect.bottom())})\n"
-                                f"ROI: ({roi_x}, {roi_y}, {roi_w}, {roi_h})")
-
-                        painter.drawText(info_x + 10, info_y + 10, info_width - 20, info_height - 20,
-                                         Qt.AlignLeft, text)
-
-                        # Restore painter state
-                        painter.restore()
+        # 信息面板在主类中绘制，这里不再绘制信息
 
 
 class DeviceImageView(QGraphicsView):
@@ -112,6 +51,8 @@ class DeviceImageView(QGraphicsView):
     # 添加新信号
     NodeChangeSignal = Signal(str, object)
     modeChangedSignal = Signal(bool)  # True = 框选模式, False = 显示模式
+    # 添加多选区变更信号
+    multiSelectionChangedSignal = Signal(list)
 
     def __init__(self, parent=None, control=None):
         super().__init__(parent)
@@ -135,11 +76,14 @@ class DeviceImageView(QGraphicsView):
         # Initialize members
         self.pixmap_item = None
         self.selection_rect = None
+        self.secondary_selection_rect = None  # 新增次选择框
         self.zoom_info_item = None
         self.original_pixmap = None
         self.is_selecting = False
+        self.is_selecting_secondary = False  # 标记是否正在创建次选择框
         self.selection_mode = False
         self.selection_start = None
+        self.secondary_selection_start = None  # 次选择框起始点
         self.min_zoom = 0.1
         self.max_zoom = 4.0
         self.zoom_sensitivity = 0.3  # 调整缩放灵敏度
@@ -155,6 +99,7 @@ class DeviceImageView(QGraphicsView):
         self.pixmap_item = None
         self.original_pixmap = None
         self.selection_rect = None  # Reset selection rect when changing image
+        self.secondary_selection_rect = None  # 重置次选择框
 
         if image is None:
             return
@@ -226,6 +171,7 @@ class DeviceImageView(QGraphicsView):
 
     def clear_selection(self):
         """Clear current selection"""
+        # 清除主选择框
         if self.selection_rect:
             try:
                 # Check if the object is still valid before attempting to remove it
@@ -236,7 +182,19 @@ class DeviceImageView(QGraphicsView):
                 pass
             finally:
                 self.selection_rect = None
-                self.selectionCleared.emit()
+
+        # 清除次选择框
+        if self.secondary_selection_rect:
+            try:
+                if hasattr(self.secondary_selection_rect, 'scene') and self.secondary_selection_rect.scene():
+                    self.scene.removeItem(self.secondary_selection_rect)
+            except RuntimeError:
+                pass
+            finally:
+                self.secondary_selection_rect = None
+
+        # 发出信号
+        self.selectionCleared.emit()
 
     def is_selection_valid(self):
         """Check if the selection rectangle is still valid"""
@@ -251,6 +209,21 @@ class DeviceImageView(QGraphicsView):
             self.selection_rect = None
             return False
 
+    def is_secondary_selection_valid(self):
+        """检查次选择框是否有效"""
+        if not self.secondary_selection_rect:
+            return False
+        try:
+            _ = self.secondary_selection_rect.rect()
+            return True
+        except (RuntimeError, AttributeError):
+            self.secondary_selection_rect = None
+            return False
+
+    def has_both_selections(self):
+        """检查是否同时有主选择框和次选择框"""
+        return self.is_selection_valid() and self.is_secondary_selection_valid()
+
     def get_selection(self):
         """Get the current selection in scene coordinates"""
         if not self.is_selection_valid():
@@ -261,6 +234,17 @@ class DeviceImageView(QGraphicsView):
         except (RuntimeError, AttributeError):
             # Handle potential errors if the object becomes invalid
             self.selection_rect = None
+            return None
+
+    def get_secondary_selection(self):
+        """获取次选择框在场景坐标中的区域"""
+        if not self.is_secondary_selection_valid():
+            return None
+        try:
+            rect = self.secondary_selection_rect.rect().normalized()
+            return self.secondary_selection_rect.mapToScene(rect).boundingRect()
+        except (RuntimeError, AttributeError):
+            self.secondary_selection_rect = None
             return None
 
     def get_normalized_selection(self):
@@ -293,14 +277,20 @@ class DeviceImageView(QGraphicsView):
 
         return None
 
-    def get_roi_data(self):
-        """获取当前选择区域的ROI数据 (x, y, w, h)"""
-        if not self.is_selection_valid() or not self.pixmap_item:
+    def get_roi_data(self, is_secondary=False):
+        """获取选择区域的ROI数据 (x, y, w, h)"""
+        selection_rect = self.secondary_selection_rect if is_secondary else self.selection_rect
+
+        if (not selection_rect) or not self.pixmap_item:
             return None
 
         try:
             # 获取场景坐标中的选择区域
-            sel_rect = self.get_selection()
+            if is_secondary:
+                sel_rect = self.get_secondary_selection()
+            else:
+                sel_rect = self.get_selection()
+
             if not sel_rect:
                 return None
 
@@ -317,8 +307,30 @@ class DeviceImageView(QGraphicsView):
 
         except (RuntimeError, AttributeError):
             # 处理潜在错误
-            self.selection_rect = None
+            if is_secondary:
+                self.secondary_selection_rect = None
+            else:
+                self.selection_rect = None
             return None
+
+    def get_offset_data(self):
+        """计算两个选区之间的偏移量"""
+        if not self.has_both_selections():
+            return None
+
+        roi_1 = self.get_roi_data(is_secondary=False)
+        roi_2 = self.get_roi_data(is_secondary=True)
+
+        if not roi_1 or not roi_2:
+            return None
+
+        # 计算偏移量 (x差值, y差值, w差值, h差值)
+        offset_x = roi_2[0] - roi_1[0]
+        offset_y = roi_2[1] - roi_1[1]
+        offset_w = roi_2[2] - roi_1[2]
+        offset_h = roi_2[3] - roi_1[3]
+
+        return [offset_x, offset_y, offset_w, offset_h]
 
     def constrain_to_pixmap(self, scene_pos):
         """将场景坐标限制在图片范围内"""
@@ -371,6 +383,61 @@ class DeviceImageView(QGraphicsView):
         """Get current zoom factor"""
         return self.transform().m11()
 
+    def paintEvent(self, event):
+        """重写绘制事件，添加信息面板"""
+        super().paintEvent(event)
+
+        # 绘制信息面板
+        if self.pixmap_item and (self.is_selection_valid() or self.is_secondary_selection_valid()):
+            painter = QPainter(self.viewport())
+            painter.setRenderHint(QPainter.Antialiasing)
+
+            # 设置信息面板位置和大小
+            info_width = 220  # 增加宽度以适应更多信息
+            info_height = 120 if self.has_both_selections() else 80  # 当有两个选区时增加高度
+            info_margin = 10
+
+            info_x = self.viewport().width() - info_width - info_margin
+            info_y = info_margin
+
+            # 绘制信息面板背景
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(QBrush(QColor(0, 0, 0, 150)))
+            painter.drawRoundedRect(info_x, info_y, info_width, info_height, 5, 5)
+
+            # 绘制信息文本
+            painter.setPen(QPen(QColor(255, 255, 255)))
+            painter.setFont(QFont("Arial", 9))
+
+            text = "选择区域信息:\n"
+
+            # 添加主选区信息
+            if self.is_selection_valid():
+                roi_1 = self.get_roi_data(is_secondary=False)
+                if roi_1:
+                    sel_rect = self.get_selection()
+                    text += (f"ROI_1: ({roi_1[0]}, {roi_1[1]}, {roi_1[2]}, {roi_1[3]})\n"
+                             f"起点: ({int(sel_rect.x())}, {int(sel_rect.y())})\n")
+
+            # 添加次选区信息
+            if self.is_secondary_selection_valid():
+                roi_2 = self.get_roi_data(is_secondary=True)
+                if roi_2:
+                    sel_rect = self.get_secondary_selection()
+                    text += (f"ROI_2: ({roi_2[0]}, {roi_2[1]}, {roi_2[2]}, {roi_2[3]})\n"
+                             f"起点: ({int(sel_rect.x())}, {int(sel_rect.y())})\n")
+
+            # 添加偏移量信息
+            if self.has_both_selections():
+                offset = self.get_offset_data()
+                if offset:
+                    text += f"偏移量: ({offset[0]}, {offset[1]}, {offset[2]}, {offset[3]})"
+
+            painter.drawText(info_x + 10, info_y + 10, info_width - 20, info_height - 20,
+                             Qt.AlignLeft, text)
+
+            painter.end()
+
     # Event handlers
     def mousePressEvent(self, event):
         """Handle mouse press events"""
@@ -393,8 +460,11 @@ class DeviceImageView(QGraphicsView):
             self.setCursor(Qt.OpenHandCursor)
             return
 
-        # Left click for selection
-        if event.button() == Qt.LeftButton and self.selection_mode:
+        # 创建新的次选择框 (Ctrl+左键)
+        if (event.button() == Qt.LeftButton and
+                self.selection_mode and
+                event.modifiers() & Qt.ControlModifier and
+                self.is_selection_valid()):
             # 确保点击位置在图片内
             try:
                 pixmap_scene_pos = self.pixmap_item.mapToScene(
@@ -402,14 +472,47 @@ class DeviceImageView(QGraphicsView):
                 ).boundingRect()
 
                 if pixmap_scene_pos.contains(scene_pos):
-                    # Clear any existing selection first
+                    # 清除已有的次选择框
+                    if self.secondary_selection_rect:
+                        try:
+                            if hasattr(self.secondary_selection_rect,
+                                       'scene') and self.secondary_selection_rect.scene():
+                                self.scene.removeItem(self.secondary_selection_rect)
+                        except RuntimeError:
+                            pass
+
+                    self.is_selecting_secondary = True
+                    self.secondary_selection_start = scene_pos
+
+                    # 创建新的次选择框 (绿色)
+                    self.secondary_selection_rect = SelectionRect(is_secondary=True)
+                    self.scene.addItem(self.secondary_selection_rect)
+
+                    # 初始化为零矩形
+                    self.secondary_selection_rect.setRect(QRectF(0, 0, 0, 0))
+                    self.secondary_selection_rect.setPos(scene_pos)
+                    return
+            except (RuntimeError, AttributeError):
+                self.is_selecting_secondary = False
+                return super().mousePressEvent(event)
+
+        # Left click for selection
+        if event.button() == Qt.LeftButton and self.selection_mode and not (event.modifiers() & Qt.ControlModifier):
+            # 确保点击位置在图片内
+            try:
+                pixmap_scene_pos = self.pixmap_item.mapToScene(
+                    self.pixmap_item.boundingRect()
+                ).boundingRect()
+
+                if pixmap_scene_pos.contains(scene_pos):
+                    # Clear any existing selections
                     self.clear_selection()
 
                     self.is_selecting = True
                     self.selection_start = scene_pos
 
-                    # Create new selection rectangle
-                    self.selection_rect = SelectionRect()
+                    # Create new selection rectangle (red)
+                    self.selection_rect = SelectionRect(is_secondary=False)
                     self.scene.addItem(self.selection_rect)
 
                     # Initialize with zero rect at start point
@@ -435,7 +538,27 @@ class DeviceImageView(QGraphicsView):
         if not self.pixmap_item:
             return super().mouseMoveEvent(event)
 
-        # Selection in progress
+        # 次选择框选择进行中
+        if self.is_selecting_secondary and self.is_secondary_selection_valid():
+            try:
+                current_scene_pos = self.mapToScene(event.pos())
+                constrained_pos = self.constrain_to_pixmap(current_scene_pos)
+
+                rect = QRectF(self.secondary_selection_start, constrained_pos).normalized()
+                local_rect = QRectF(0, 0, rect.width(), rect.height())
+
+                self.secondary_selection_rect.setRect(local_rect)
+                self.secondary_selection_rect.setPos(rect.topLeft())
+
+                # 触发重绘以更新信息面板
+                self.viewport().update()
+
+                return
+            except (RuntimeError, AttributeError):
+                self.is_selecting_secondary = False
+                self.secondary_selection_rect = None
+
+        # 主选择框选择进行中
         if self.is_selecting and self.is_selection_valid():
             try:
                 # 获取当前鼠标位置对应的场景坐标
@@ -457,6 +580,10 @@ class DeviceImageView(QGraphicsView):
                 # 设置矩形位置和大小
                 self.selection_rect.setRect(local_rect)
                 self.selection_rect.setPos(rect.topLeft())
+
+                # 触发重绘以更新信息面板
+                self.viewport().update()
+
                 return
             except (RuntimeError, AttributeError):
                 # Selection rect may have been deleted
@@ -490,8 +617,23 @@ class DeviceImageView(QGraphicsView):
 
     def mouseReleaseEvent(self, event):
         """Handle mouse release events"""
-        # End selection
-        if self.is_selecting and event.button() == Qt.LeftButton:
+        # 结束次选择框选择
+        if self.is_selecting_secondary and event.button() == Qt.LeftButton:
+            self.is_selecting_secondary = False
+
+            if self.is_secondary_selection_valid():
+                try:
+                    if not self.secondary_selection_rect.rect().isEmpty():
+                        # 发出双选择框变更信号
+                        self.multiSelectionChangedSignal.emit([
+                            self.get_selection(),
+                            self.get_secondary_selection()
+                        ])
+                except (RuntimeError, AttributeError):
+                    self.secondary_selection_rect = None
+
+        # 结束主选择框选择
+        elif self.is_selecting and event.button() == Qt.LeftButton:
             self.is_selecting = False
 
             # Check if selection rect is valid before accessing
@@ -544,8 +686,21 @@ class DeviceImageView(QGraphicsView):
         """Show context menu"""
         self.context_menu.clear()
 
-        # Different options based on selection state
-        if self.is_selection_valid():
+        # 根据选择框状态提供不同选项
+        if self.has_both_selections():
+            # 当有两个选择框时，显示保存偏移量选项
+            save_offset_menu = self.context_menu.addMenu("保存偏移")
+            save_offset_menu.addAction("保存偏移到节点roi", self._save_offset_to_node_roi)
+            save_offset_menu.addAction("保存偏移到节点target", self._save_offset_to_node_target)
+
+            # 添加清除全部选区选项
+            self.context_menu.addAction("清除全部选区", self.clear_selection)
+
+            # 添加仅清除次选区选项
+            self.context_menu.addAction("清除次选区", self._clear_secondary_selection)
+
+        elif self.is_selection_valid():
+            # 只有主选择框时显示正常选项
             self.context_menu.addAction("编辑选区", self._edit_selection)
 
             # 创建保存选区子菜单
@@ -555,6 +710,10 @@ class DeviceImageView(QGraphicsView):
             save_menu.addAction("保存Target到节点", self._save_target_to_node)
 
             self.context_menu.addAction("清除选区", self.clear_selection)
+
+            # 添加提示创建次选择框的选项
+            self.context_menu.addAction("按Ctrl+左键添加次选择框", lambda: None)
+
         else:
             self.context_menu.addAction("全选", self._select_all)
             self.context_menu.addAction("重置视图", self.reset_view)
@@ -576,6 +735,46 @@ class DeviceImageView(QGraphicsView):
 
         # Show menu
         self.context_menu.exec(self.mapToGlobal(pos))
+
+    def _clear_secondary_selection(self):
+        """仅清除次选择框"""
+        if self.secondary_selection_rect:
+            try:
+                if hasattr(self.secondary_selection_rect, 'scene') and self.secondary_selection_rect.scene():
+                    self.scene.removeItem(self.secondary_selection_rect)
+            except RuntimeError:
+                pass
+            finally:
+                self.secondary_selection_rect = None
+                self.viewport().update()  # 更新视图以刷新信息面板
+
+    def _save_offset_to_node_roi(self):
+        """保存两个选区之间的偏移量到节点"""
+        offset_data = self.get_offset_data()
+        if not offset_data:
+            return
+
+        if self.control and self.control.open_node:
+            node = self.control.open_node
+            node.task_node.roi_offset = offset_data
+            node.refresh_ui()
+
+            # 发送节点变更信号
+            self.control.OpenNodeChanged.emit("controller_view", self.control.open_node)
+
+    def _save_offset_to_node_target(self):
+        """保存两个选区之间的偏移量到节点"""
+        offset_data = self.get_offset_data()
+        if not offset_data:
+            return
+
+        if self.control and self.control.open_node:
+            node = self.control.open_node
+            node.task_node.target_offset = offset_data
+            node.refresh_ui()
+
+            # 发送节点变更信号
+            self.control.OpenNodeChanged.emit("controller_view", self.control.open_node)
 
     # Context menu actions
     def _edit_selection(self):
@@ -638,7 +837,7 @@ class DeviceImageView(QGraphicsView):
                     node.task_node.template = [template, relative_path]
 
             node.refresh_ui()
-            self.control.OpenNodeChanged.emit("controller_view",self.control.open_node)
+            self.control.OpenNodeChanged.emit("controller_view", self.control.open_node)
 
             # self.NodeChangeSignal.emit("template", relative_path)
 
@@ -653,7 +852,7 @@ class DeviceImageView(QGraphicsView):
             return
         if self.control.open_node:
             node = self.control.open_node
-            node.task_node.roi=roi_data
+            node.task_node.roi = roi_data
             node.refresh_ui()
         # 发送信号
         self.control.OpenNodeChanged.emit("controller_view", self.control.open_node)
@@ -673,7 +872,6 @@ class DeviceImageView(QGraphicsView):
             node.refresh_ui()
         # 发送信号
         self.control.OpenNodeChanged.emit("controller_view", self.control.open_node)
-
 
     def _save_selection(self):
         """Save selection to file and return relative path"""

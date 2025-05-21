@@ -248,7 +248,7 @@ class MainWindow(QMainWindow):
     @asyncSlot()
     async def check_agent_connection(self):
         # 调用实际的agent连接检查方法
-        is_connected = await self.device_settings_view.connect_device()  # 这应该是你已有的或将要实现的方法
+        is_connected = await self.device_settings_view.connect_mfw_agent()  # 这应该是你已有的或将要实现的方法
 
         # 更新按钮状态
         self.set_button_status(self.agent_status_btn, is_connected)
