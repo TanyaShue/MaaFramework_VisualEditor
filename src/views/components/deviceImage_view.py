@@ -1,6 +1,5 @@
 import os
 from datetime import datetime
-
 from PIL.Image import Image
 from PIL.ImageQt import QImage
 from PySide6.QtCore import Qt, Signal, QPoint, QRectF, QPointF, QTimer
@@ -10,7 +9,9 @@ from PySide6.QtWidgets import (QMenu, QGraphicsView, QGraphicsScene,
                                QApplication, QSizePolicy)
 
 from src.config_manager import config_manager
-
+import numpy as np
+import cv2
+from io import BytesIO
 
 class SelectionRect(QGraphicsRectItem):
     """Selection rectangle with info display"""
@@ -708,6 +709,7 @@ class DeviceImageView(QGraphicsView):
             save_menu.addAction("保存图片到节点", self._save_image_to_node)
             save_menu.addAction("保存ROI到节点", self._save_roi_to_node)
             save_menu.addAction("保存Target到节点", self._save_target_to_node)
+            save_menu.addAction("保存所需颜色到节点", self._save_color_to_node)  # 新增此行
 
             self.context_menu.addAction("清除选区", self.clear_selection)
 
@@ -776,6 +778,87 @@ class DeviceImageView(QGraphicsView):
             # 发送节点变更信号
             self.control.OpenNodeChanged.emit("controller_view", self.control.open_node)
 
+    def _save_color_to_node(self):
+        """保存选区颜色范围到节点"""
+        if not self.is_selection_valid() or not self.original_pixmap:
+            return
+
+        try:
+            # 获取标准化的选区坐标
+            norm_rect = self.get_normalized_selection()
+            if not norm_rect:
+                return
+
+            # 从原始图像中提取选区
+            pixmap_rect = self.original_pixmap.rect()
+            x = int(norm_rect.x() * pixmap_rect.width())
+            y = int(norm_rect.y() * pixmap_rect.height())
+            w = int(norm_rect.width() * pixmap_rect.width())
+            h = int(norm_rect.height() * pixmap_rect.height())
+
+            # 创建裁剪后的图像
+            cropped = self.original_pixmap.copy(x, y, w, h)
+
+            # 转换QPixmap为numpy数组以便进行颜色分析
+            from PySide6.QtCore import QBuffer
+            img_buffer = QBuffer()
+            img_buffer.open(QBuffer.ReadWrite)
+            cropped.save(img_buffer, "PNG")
+            img_data = img_buffer.data().data()
+            img_buffer.close()
+
+            # 转换为numpy数组
+            from PIL import Image
+            pil_image = Image.open(BytesIO(img_data))
+            np_image = np.array(pil_image)
+
+            # 计算RGB颜色范围
+            rgb_lower = np.min(np_image, axis=(0, 1)).tolist()
+            rgb_upper = np.max(np_image, axis=(0, 1)).tolist()
+
+            # 转换为HSV并计算颜色范围
+            bgr_image = cv2.cvtColor(np_image, cv2.COLOR_RGB2BGR)  # 转换RGB到BGR
+            hsv_image = cv2.cvtColor(bgr_image, cv2.COLOR_BGR2HSV)
+            hsv_lower = np.min(hsv_image, axis=(0, 1)).tolist()
+            hsv_upper = np.max(hsv_image, axis=(0, 1)).tolist()
+
+            # 转换为灰度并计算颜色范围
+            gray_image = cv2.cvtColor(np_image, cv2.COLOR_RGB2GRAY)
+            gray_lower = [int(np.min(gray_image))]
+            gray_upper = [int(np.max(gray_image))]
+
+            # 获取当前节点的颜色匹配方法
+            method = 4  # 默认RGB
+            if self.control and self.control.open_node:
+                node = self.control.open_node
+                if hasattr(node.task_node, 'method'):
+                    method = node.task_node.method
+
+            # 根据method选择适当的颜色范围
+            if method == 40:  # HSV
+                lower = hsv_lower
+                upper = hsv_upper
+            elif method == 6:  # Grayscale
+                lower = gray_lower
+                upper = gray_upper
+            else:  # RGB and others
+                lower = rgb_lower
+                upper = rgb_upper
+
+            # 保存到节点
+            if self.control and self.control.open_node:
+                node = self.control.open_node
+                node.task_node.lower = lower
+                node.task_node.upper = upper
+                node.refresh_ui()
+
+                # 发送节点变更信号
+                self.control.OpenNodeChanged.emit("controller_view", self.control.open_node)
+
+                print(f"已保存颜色范围 - method: {method}, lower: {lower}, upper: {upper}")
+
+        except Exception as e:
+            print(f"保存颜色范围时出错: {e}")
     # Context menu actions
     def _edit_selection(self):
         """将选区截取并更新为当前视图"""
