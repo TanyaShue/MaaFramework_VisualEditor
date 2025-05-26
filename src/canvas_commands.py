@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 
-from src.views.node_system.node import Node
+from canvas_integration import BaseNode
 
 
 class Command(ABC):
@@ -115,7 +115,7 @@ class DeleteNodesCommand(Command):
 
         # 首先重新创建所有节点
         for node_info in self.node_data:
-            node = Node(node_info['id'], node_info['title'])
+            node = BaseNode(node_info['id'], node_info['title'])
             node.setPos(node_info['position'])
             self.canvas.add_node(node)
             recreated_nodes[node_info['id']] = node

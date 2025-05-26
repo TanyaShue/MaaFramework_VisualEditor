@@ -5,7 +5,6 @@ from PySide6.QtWidgets import (QMainWindow, QDockWidget, QStatusBar, QToolBar,
                                QMessageBox, QFileDialog, QSizePolicy, QToolTip)
 from qasync import asyncSlot
 
-from src.views.node_canvas import NodeCanvas
 from src.views.node_library import NodeLibrary
 from src.views.node_properties_editor import NodePropertiesEditor
 from .config_manager import config_manager
@@ -13,6 +12,7 @@ from .maafw import maafw
 from .views.controller_setting import DeviceSettingsView
 from .views.controller_view import ControllerView
 from .views.debug_view import DebuggerView
+from .views.optimized_canvas import OptimizedCanvas
 from .views.resource_library import ResourceLibrary
 
 
@@ -27,7 +27,7 @@ class MainWindow(QMainWindow):
         self.config_manager = config_manager
 
         # 创建核心组件
-        self.canvas = NodeCanvas()
+        self.canvas = OptimizedCanvas()
         self.controller_view = ControllerView()
         self.device_settings_view = DeviceSettingsView()
         self.resource_library = ResourceLibrary()
@@ -157,8 +157,8 @@ class MainWindow(QMainWindow):
         zoom_out_action = tool_bar.addAction("缩小")
         zoom_out_action.triggered.connect(lambda: self.canvas.zoom(1 / self.canvas.zoom_factor))
 
-        fit_action = tool_bar.addAction("适应")
-        fit_action.triggered.connect(self.canvas.center_on_content)
+        # fit_action = tool_bar.addAction("适应")
+        # fit_action.triggered.connect(self.canvas.center_on_content)
 
         # 保存按钮
         save_action = tool_bar.addAction("保存")
@@ -308,11 +308,11 @@ class MainWindow(QMainWindow):
             dock.visibilityChanged.connect(lambda visible, d=dock: self.update_dock_status(d, visible))
 
         # 连接节点相关的信号
-        self.canvas.node_manager.OpenNodeChanged.connect(self.update_open_node)
-        self.canvas.node_manager.OpenNodeChanged.connect(self.show_properties_dock)
+        # self.canvas.node_manager.OpenNodeChanged.connect(self.update_open_node)
+        # self.canvas.node_manager.OpenNodeChanged.connect(self.show_properties_dock)
         self.resource_library.resource_opened.connect(self.on_resource_opened)
         self.property_editor.OpenNodeChanged.connect(self.update_open_node)
-        self.property_editor.node_name_change.connect(self.canvas.node_manager.update_node_name)
+        # self.property_editor.node_name_change.connect(self.canvas.node_manager.update_node_name)
         self.controller_view.OpenNodeChanged.connect(self.update_open_node)
         self.connet_maafw.connect(self.restore_maafw_state)
 
