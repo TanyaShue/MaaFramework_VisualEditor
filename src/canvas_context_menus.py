@@ -232,12 +232,25 @@ class ContextMenus:
         if not nodes:
             return
 
-        # 创建节点的简单深拷贝
+        # 创建节点的数据字典列表
         clipboard_data = []
         for node in nodes:
+            # 深拷贝 task_node 并处理
+            task_node_copy = None
+            if node.task_node:
+                task_node_copy = copy.deepcopy(node.task_node)
+                # 修改 task_node 的 name，添加 _copy 后缀
+                task_node_copy.name = f"{task_node_copy.name}_copy"
+                # 移除 next, interrupt, on_error 属性
+                task_node_copy.next = None
+                task_node_copy.interrupt = None
+                task_node_copy.on_error = None
+
+            # 创建包含节点信息的字典
             node_data = {
                 'title': node.title,
-                'position': node.pos(),
+                'position': node.pos(),  # QPointF position
+                'task_node': task_node_copy
             }
             clipboard_data.append(node_data)
 
@@ -265,11 +278,32 @@ class ContextMenus:
             offset_x = scene_pos.x() - min_x
             offset_y = scene_pos.y() - min_y
 
+        # 获取已存在的所有节点标题
+        existing_titles = [node.title for node in self.canvas.node_manager.nodes]
+
         # 创建新节点
         new_nodes = []
         for node_data in self.canvas.clipboard:
+            # 生成唯一的标题
+            base_title = node_data['title']
+            new_title = base_title
+            title_count = 1
+
+            # 如果标题重复，添加数字后缀避免重复
+            while new_title in existing_titles:
+                new_title = f"{base_title}_copy{title_count}"
+                title_count += 1
+
+            existing_titles.append(new_title)  # 添加到列表中避免同批次粘贴的重复
+
             # 创建新节点
-            new_node = Node(node_data['title'])
+            new_node = Node(title=new_title)
+
+            # 如果有 task_node，复制并更新名称
+            if node_data.get('task_node'):
+                task_node_copy = copy.deepcopy(node_data['task_node'])
+                task_node_copy.name = new_title  # 更新 task_node 的名称
+                new_node.set_task_node(task_node_copy)
 
             # 设置位置
             new_pos = QPointF(
@@ -289,7 +323,6 @@ class ContextMenus:
                 self.canvas.command_manager.execute(AddNodeCommand(node, self.canvas))
 
         self.canvas.info_label.setText(f"已粘贴 {len(new_nodes)} 个节点")
-
     def _delete_nodes(self, nodes):
         """删除节点"""
         if not nodes:
