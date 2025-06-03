@@ -101,21 +101,18 @@ class MaaFW:
         if not self.resource:
             self.resource = Resource()
 
-        if not self.agent and identifier:
-            self.agent = AgentClient(identifier)
-            self.agent.bind(self.resource)
-            if not self.agent.identifier:
-                raise RuntimeError("Failed to create agent")
+        self.agent = AgentClient(identifier)
+        self.agent.bind(self.resource)
+        if not self.agent.identifier:
+            raise RuntimeError("Failed to create agent")
 
         return self.agent.identifier
 
     @asyncify
     def connect_agent(self) -> Tuple[bool, Optional[str]]:
         ret = self.agent.connect()
-        print(ret)
         if not ret:
             return (None, "Failed to connect agent")
-        print("lianjiechengg ")
         return (True, None)
 
     def run_task(
