@@ -432,7 +432,7 @@ class DeviceSettingsView(QWidget):
             agent_id_input = self.agent_id_edit.text().strip()
             agent_id=await maafw.create_agent(agent_id_input)
             print(f"当前agentID{agent_id}")
-            success=await maafw.connect_agent(agent_id)
+            success=await maafw.connect_agent()
             if success:
                 print(f"agent连接成功 agent_id: {agent_id}")
                 return True

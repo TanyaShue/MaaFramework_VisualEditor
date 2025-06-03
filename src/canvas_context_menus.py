@@ -133,7 +133,7 @@ class ContextMenus:
             else:
                 print(f"连接资源失败: {error}")
             agent_id=await maafw.create_agent("maa-agent-server")
-            await maafw.connect_agent("maa-agent-server")
+            await maafw.connect_agent()
             if agent_id:
                 print(f"agent_id: {agent_id}")
         except Exception as e:
