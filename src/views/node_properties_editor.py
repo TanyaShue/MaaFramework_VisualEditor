@@ -156,7 +156,7 @@ class NodePropertiesEditor(QWidget):
         main_layout.setContentsMargins(10, 10, 10, 10)
 
         # 创建提示标签（当没有节点时显示）
-        self.no_node_label = QLabel("请打开节点或节点不支持")
+        self.no_node_label = QLabel("请双击打开节点或当前节点不支持")
         self.no_node_label.setAlignment(Qt.AlignCenter)
         main_layout.addWidget(self.no_node_label)
 
