@@ -6,6 +6,8 @@ from PySide6.QtCore import Qt, QSize, Signal, QTimer
 
 
 class ImagePreviewContainer(QScrollArea):
+    image_deleted = Signal(str)  # 传递被删除图片的路径
+
     def __init__(self, parent=None):
         super().__init__(parent)
 
@@ -65,7 +67,7 @@ class ImagePreviewContainer(QScrollArea):
         add_container.add_clicked.connect(self.add_image)
         self.image_containers.append(add_container)
 
-    def add_image(self, image_path=None):
+    def add_image(self, image_path=None, relative_path=None):
         """添加新图片到容器，可以指定图片路径或通过对话框选择"""
         if not image_path:
             file_dialog = QFileDialog()
@@ -81,6 +83,11 @@ class ImagePreviewContainer(QScrollArea):
             # 创建新的图片容器
             container_width = max(50, (self.viewport().width() - (self.max_columns - 1) * 4) // self.max_columns)
             image_container = ImageContainer(image_path=image_path, initial_width=container_width)
+
+            # 保存相对路径信息
+            if relative_path:
+                image_container.relative_path = relative_path
+
             image_container.delete_clicked.connect(self.delete_image)
             self.image_containers.append(image_container)
 
@@ -97,6 +104,10 @@ class ImagePreviewContainer(QScrollArea):
     def delete_image(self, container):
         """删除图片容器"""
         if container in self.image_containers:
+            # 发出删除信号，传递相对路径
+            if hasattr(container, 'relative_path') and container.relative_path:
+                self.image_deleted.emit(container.relative_path)
+
             self.image_containers.remove(container)
             container.deleteLater()
             self.update_layout()

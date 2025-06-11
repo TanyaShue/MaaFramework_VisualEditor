@@ -232,7 +232,10 @@ class NodePropertiesEditor(QWidget):
 
         # 创建图像预览容器
         self.image_preview_container = ImagePreviewContainer()
-        self.image_preview_container.setMinimumHeight(300)  # 增大预览区域
+        self.image_preview_container.setMinimumHeight(300)
+
+        # 连接删除信号
+        self.image_preview_container.image_deleted.connect(self.on_template_image_deleted)
 
         # 将预览容器添加到布局中
         layout.addWidget(self.image_preview_container, 1)
@@ -559,7 +562,7 @@ class NodePropertiesEditor(QWidget):
                 "lower": PropertyConfig("QLineEdit", "颜色下限:", placeholder="[R,G,B] 或 [[R,G,B],[R,G,B],...]"),
                 "upper": PropertyConfig("QLineEdit", "颜色上限:", placeholder="[R,G,B] 或 [[R,G,B],[R,G,B],...]"),
                 "method": PropertyConfig("QSpinBox", "匹配算法:", range=(0, 50),
-                                         default=self.PROPERTY_DEFAULTS.get("method"),
+                                         default=self.ALGORITHM_DEFAULTS["ColorMatch"]["method"],  # 使用算法特定的默认值
                                          tooltip="常用：4(RGB), 40(HSV), 6(灰度)"),
                 "count": PropertyConfig("QSpinBox", "特征点数量:", range=(1, 10000),
                                         default=self.ALGORITHM_DEFAULTS["ColorMatch"]["count"]),
@@ -838,8 +841,16 @@ class NodePropertiesEditor(QWidget):
 
         value = getattr(self.current_node, prop_name, None)
 
-        # 如果属性值为None，返回默认值
+        # 如果属性值为None，检查是否有算法特定的默认值
         if value is None:
+            # 获取当前的识别算法类型
+            rec_type = getattr(self.current_node, "recognition", self.PROPERTY_DEFAULTS.get("recognition"))
+
+            # 检查是否有算法特定的默认值
+            if rec_type in self.ALGORITHM_DEFAULTS and prop_name in self.ALGORITHM_DEFAULTS[rec_type]:
+                return self.ALGORITHM_DEFAULTS[rec_type][prop_name]
+
+            # 否则返回全局默认值
             return self.PROPERTY_DEFAULTS.get(prop_name)
 
         return value
@@ -1146,8 +1157,6 @@ class NodePropertiesEditor(QWidget):
         image_based_algorithms = ["TemplateMatch", "FeatureMatch"]
 
         if recognition_type not in image_based_algorithms:
-            # 如果当前不是基于图片的算法，显示提示信息
-            # self.image_preview_container.show_message(f"当前算法 {recognition_type} 不使用模板图片")
             return
 
         # 获取模板路径
@@ -1160,16 +1169,57 @@ class NodePropertiesEditor(QWidget):
                 templates = [template_value]
 
         if not templates:
-            # self.image_preview_container.show_message("未设置模板图片")
             return
 
         # 添加图片到预览容器
         for template_path in templates:
             if template_path:
-                # 构造完整路径：base_resource_path/image/template_path
+                # 构造完整路径
                 base_path = config_manager.config["recent_files"]["base_resource_path"]
                 final_path = os.path.join(base_path, "image", template_path)
-                self.image_preview_container.add_image(final_path)
+                # 传递相对路径作为额外参数
+                self.image_preview_container.add_image(final_path, template_path)
+
+    def on_template_image_deleted(self, relative_path):
+        """处理模板图片删除"""
+        if not self.current_node or not hasattr(self.current_node, 'template'):
+            return
+
+        template_value = self.current_node.template
+
+        # 从template属性中移除对应的路径
+        if isinstance(template_value, list):
+            if relative_path in template_value:
+                template_value.remove(relative_path)
+                # 如果列表为空，将template设为None或空字符串
+                if not template_value:
+                    delattr(self.current_node, 'template')
+                elif len(template_value) == 1:
+                    # 如果只剩一个元素，可以转换为字符串
+                    self.current_node.template = template_value[0]
+        elif isinstance(template_value, str) and template_value == relative_path:
+            # 如果是字符串且匹配，删除属性
+            delattr(self.current_node, 'template')
+
+        # 更新UI中的template输入框
+        recognition_type = self.get_node_value("recognition")
+        if recognition_type in self.property_widgets and "template" in self.property_widgets[recognition_type]:
+            template_widget = self.property_widgets[recognition_type]["template"]
+            if hasattr(self.current_node, 'template'):
+                template_value = self.current_node.template
+                if isinstance(template_value, list):
+                    template_widget.setText(json.dumps(template_value))
+                else:
+                    template_widget.setText(str(template_value))
+            else:
+                template_widget.clear()
+
+        # 如果启用了自动保存，应用更改
+        if self.auto_save:
+            self.apply_changes_silent()
+
+        # 发出节点变更信号
+        self.OpenNodeChanged.emit("property_editor", self.open_node)
 
     def toggle_auto_save(self, checked):
         """切换自动保存"""

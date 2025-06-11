@@ -372,8 +372,8 @@ def main():
         script_dir = Path.cwd()
 
     # 你可以修改这两个文件名
-    target_image_name = "通用1.png"  # 需要识别的图片
-    exclude_image_name = "通用.png"  # 不需要识别的图片
+    target_image_name = "通用_2.png"  # 需要识别的图片
+    exclude_image_name = "通用_3.png"  # 不需要识别的图片
 
     # 或者使用命令行参数
     if len(sys.argv) >= 3:
