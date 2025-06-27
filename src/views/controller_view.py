@@ -1,8 +1,10 @@
 import os
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-                               QPushButton, QSizePolicy)
+                               QPushButton, QSizePolicy, QFileDialog)
+from PySide6.QtGui import QPixmap, QImage
 from qasync import asyncSlot
+from PIL import Image
 
 from src.maafw import maafw
 from src.views.components.deviceImage_view import DeviceImageView
@@ -51,6 +53,11 @@ class ControllerView(QWidget):
         self.screenshot_btn = QPushButton("截图")
         self.screenshot_btn.clicked.connect(self.update_device_img)
         toolbar_layout.addWidget(self.screenshot_btn)
+
+        # 导入图片按钮
+        self.import_image_btn = QPushButton("导入图片")
+        self.import_image_btn.clicked.connect(self.import_image)
+        toolbar_layout.addWidget(self.import_image_btn)
 
         # 重置视图按钮
         self.reset_view_btn = QPushButton("重置视图")
@@ -104,6 +111,35 @@ class ControllerView(QWidget):
         img = await maafw.screencap()
         if img:
             self.display_image(img)
+
+    def import_image(self):
+        """从计算机导入图片并缩放到1280x720"""
+        # 创建文件对话框
+        file_dialog = QFileDialog(self)
+        file_dialog.setWindowTitle("选择图片")
+        file_dialog.setNameFilter("图片文件 (*.png *.jpg *.jpeg *.bmp *.gif)")
+        file_dialog.setFileMode(QFileDialog.ExistingFile)
+
+        if file_dialog.exec():
+            file_path = file_dialog.selectedFiles()[0]
+
+            try:
+                # 使用PIL打开并缩放图片
+                pil_image = Image.open(file_path)
+
+                # 转换为RGB模式（如果需要）
+                if pil_image.mode not in ('RGB', 'RGBA'):
+                    pil_image = pil_image.convert('RGB')
+
+                # 缩放到1280x720
+                target_size = (1280, 720)
+                pil_image = pil_image.resize(target_size, Image.Resampling.LANCZOS)
+
+                # 显示缩放后的图片
+                self.display_image(pil_image)
+
+            except Exception as e:
+                print(f"导入图片失败: {e}")
 
     def display_image(self, image):
         """在视图中显示图像"""

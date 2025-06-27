@@ -1010,7 +1010,6 @@ class NodePropertiesEditor(QWidget):
         # self.node_changed.emit(self.current_node)
         self.OpenNodeChanged.emit("property_editor",self.open_node)
 
-
     def apply_changes_silent(self):
         """静默应用更改"""
         self.apply_changes()
